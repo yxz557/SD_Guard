@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from collections.abc import Sequence
 from typing import overload
 
@@ -32,7 +34,23 @@ from agentdojo.types import (
     get_text_content_as_str,
     text_content_block_from_string,
 )
-import time
+
+
+def _request_delay_seconds() -> float:
+    raw_value = os.getenv("AGENTDOJO_LLM_REQUEST_DELAY_SECONDS", "0")
+    try:
+        delay = float(raw_value)
+    except ValueError as error:
+        raise ValueError(
+            "AGENTDOJO_LLM_REQUEST_DELAY_SECONDS must be a non-negative number, "
+            f"got {raw_value!r}"
+        ) from error
+    if delay < 0:
+        raise ValueError(
+            "AGENTDOJO_LLM_REQUEST_DELAY_SECONDS must be non-negative, "
+            f"got {raw_value!r}"
+        )
+    return delay
 
 
 def _tool_call_to_openai(tool_call: FunctionCall) -> ChatCompletionMessageToolCallParam:
@@ -242,8 +260,9 @@ class OpenAILLM(BasePipelineElement):
     ) -> tuple[str, FunctionsRuntime, Env, Sequence[ChatMessage], dict]:
         openai_messages = [_message_to_openai(message, self.model) for message in messages]
         openai_tools = [_function_to_openai(tool) for tool in runtime.functions.values()]
-        # sleep 1 second
-        time.sleep(3)
+        request_delay = _request_delay_seconds()
+        if request_delay > 0:
+            time.sleep(request_delay)
         completion = chat_completion_request(
             self.client, self.model, openai_messages, openai_tools, self.reasoning_effort, self.temperature
         )
