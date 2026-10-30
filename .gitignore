@@ -1,0 +1,67 @@
+# ============================================================
+# Secrets and machine-local configuration
+# ============================================================
+.env
+.env.*
+*.key
+*.pem
+config.local.yaml
+config.server.yaml
+
+# ============================================================
+# Python environments and caches
+# ============================================================
+/.venv/
+.venv/
+venv/
+env/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ============================================================
+# Model weights
+# ============================================================
+/models/
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# ============================================================
+# Experiment results and generated outputs
+# ============================================================
+/results/
+/tmp/
+
+**/outputs/
+**/runs/
+**/logs/
+wandb/
+
+# AgentDojo generated/adaptive-attack results
+# Keep the small example files directly under res/, but ignore
+# the large generated subdirectories.
+/Code/FormalExp/AgentLAB-main/Task-Injection/agentdojo/res/*/
+
+# ============================================================
+# Compressed transfer archives
+# ============================================================
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+
+# ============================================================
+# Editors and operating system
+# ============================================================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

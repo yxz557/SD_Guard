@@ -1,0 +1,12 @@
+# Validated top-level packages for the CUDA 13.0 SD_5 environment.
+#
+# Install with scripts/install_cuda130.sh, or pass --torch-backend=cu130 to
+# `uv pip install`.  Do not add a separate torch, flash-attn, or xformers pin:
+# vLLM selects the matching CUDA 13.0 PyTorch wheel and supplies its own GPU
+# kernel stack.
+vllm==0.31.0
+transformers==5.17.0
+datasets==4.8.5
+accelerate==1.15.0
+safetensors==0.8.0
+tqdm==4.70.1

@@ -1,0 +1,12 @@
+# Top-level packages for the pinned SD_4 vLLM environment.
+#
+# The current two-L20 host uses the vLLM 0.31.0+cu129 release wheel with
+# torch 2.13.0+cu129.  Do not install bare PyPI vLLM over that environment:
+# the default artifact may select CUDA 13.0.  Install only the missing
+# experiment packages below into the existing sd-vllm-cu129 environment.
+vllm==0.31.0
+transformers==5.17.0
+datasets==4.8.5
+accelerate==1.15.0
+safetensors==0.8.0
+tqdm==4.70.1

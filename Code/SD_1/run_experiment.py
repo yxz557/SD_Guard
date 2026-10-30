@@ -1,0 +1,515 @@
+#!/usr/bin/env python3
+"""Run draft/target speculative decoding and offline Stream Guard evaluation."""
+
+from __future__ import annotations
+
+import argparse
+import importlib.metadata
+import json
+import time
+import traceback
+from contextlib import ExitStack
+from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from sdguard_sd.dataset import create_manifest, load_prompt_samples, select_from_manifest
+from sdguard_sd.generation import (
+    generate_speculatively,
+    prompt_token_ids,
+    stable_sample_seed,
+)
+from sdguard_sd.guard import run_guard_full_forward
+from sdguard_sd.io_utils import JsonlWriter, read_json, write_json
+from sdguard_sd.prompts import STYLE_CONTROL_SYSTEM_PROMPT
+from sdguard_sd.runtime import (
+    assert_same_tokenizer,
+    collect_runtime_metadata,
+    load_generation_model,
+    load_guard_model,
+)
+from sdguard_sd.text_split import split_completion
+
+
+PINNED_TRANSFORMERS = "4.57.6"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate fresh Qwen3 answers with lossless speculative sampling, then replay "
+            "Qwen3Guard-Stream in one causal full forward."
+        )
+    )
+    parser.add_argument(
+        "--dataset-path",
+        default="/home/model_and_data/yxz/Code/SD_Guard/datasets/Qwen3GuardTest",
+    )
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--draft-model",
+        default="/home/model_and_data/yxz/model/Qwen3-0.6B",
+    )
+    parser.add_argument(
+        "--target-model",
+        default="/home/model_and_data/yxz/model/Qwen3-4B",
+    )
+    parser.add_argument(
+        "--guard-model",
+        default="/home/model_and_data/yxz/model/Qwen3Guard-Stream-4B",
+    )
+    parser.add_argument("--sample-count", type=int, default=100)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--sample-manifest",
+        type=Path,
+        help="Reuse an existing sample manifest instead of drawing a new subset.",
+    )
+    parser.add_argument("--cache-dir", type=Path)
+    parser.add_argument("--max-new-tokens", type=int, default=2048)
+    parser.add_argument("--num-assistant-tokens", type=int, default=5)
+    parser.add_argument("--temperature", type=float, default=0.6)
+    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument(
+        "--do-sample",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
+        "--enable-thinking",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
+        "--style-control",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Apply the SD_1 mutually exclusive REFUSE/ANSWER system prompt to Draft and "
+            "Target. The prompt is never included in the Guard input."
+        ),
+    )
+    parser.add_argument(
+        "--style-control-prompt-file",
+        type=Path,
+        help="Optional UTF-8 file replacing the built-in style-control system prompt.",
+    )
+    parser.add_argument("--target-device", default="cuda:0")
+    parser.add_argument("--draft-device", default="cuda:0")
+    parser.add_argument("--guard-device", default="cuda:1")
+    parser.add_argument(
+        "--dtype",
+        default="bfloat16",
+        choices=("bfloat16", "float16", "float32", "auto"),
+    )
+    parser.add_argument("--generation-attn-implementation")
+    parser.add_argument("--guard-attn-implementation")
+    parser.add_argument("--draft-revision")
+    parser.add_argument("--target-revision")
+    parser.add_argument("--guard-revision")
+    parser.add_argument("--local-files-only", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
+    return parser.parse_args()
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _serializable_args(args: argparse.Namespace) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in vars(args).items():
+        result[key] = str(value) if isinstance(value, Path) else value
+    return result
+
+
+def _resolve_style_control_prompt(args: argparse.Namespace) -> str | None:
+    if not args.style_control:
+        if args.style_control_prompt_file is not None:
+            raise ValueError(
+                "--style-control-prompt-file cannot be used together with --no-style-control"
+            )
+        return None
+    if args.style_control_prompt_file is None:
+        return STYLE_CONTROL_SYSTEM_PROMPT
+    path = args.style_control_prompt_file.expanduser().resolve()
+    value = path.read_text(encoding="utf-8").strip()
+    if not value:
+        raise ValueError(f"Style-control prompt file is empty: {path}")
+    return value
+
+
+def _check_arguments(args: argparse.Namespace) -> None:
+    if args.sample_count <= 0:
+        raise ValueError("--sample-count must be positive")
+    if args.max_new_tokens <= 0:
+        raise ValueError("--max-new-tokens must be positive")
+    if args.num_assistant_tokens <= 0:
+        raise ValueError("--num-assistant-tokens must be positive")
+    if args.do_sample:
+        if args.temperature <= 0:
+            raise ValueError("--temperature must be positive")
+        if not 0 < args.top_p <= 1:
+            raise ValueError("--top-p must be in (0, 1]")
+        if args.top_k < 0:
+            raise ValueError("--top-k must be non-negative")
+    installed = importlib.metadata.version("transformers")
+    if installed != PINNED_TRANSFORMERS:
+        raise RuntimeError(
+            f"This initial implementation traces a private Transformers verifier API and "
+            f"therefore requires transformers=={PINNED_TRANSFORMERS}; found {installed}."
+        )
+
+
+def _prepare_output(path: Path, overwrite: bool) -> tuple[Path, Path, Path, Path]:
+    destination = path.expanduser().resolve()
+    raw_dir = destination / "raw"
+    blind_dir = destination / "blind"
+    private_dir = destination / "private"
+    known_outputs = (
+        destination / "sample_manifest.json",
+        destination / "run_config.json",
+        raw_dir / "run_metadata.json",
+        raw_dir / "generation_records.jsonl",
+        raw_dir / "guard_token_records.jsonl",
+        raw_dir / "sd_round_records.jsonl",
+        blind_dir / "blind_outputs.jsonl",
+        private_dir / "original_dataset_audit.jsonl",
+        destination / "analysis" / "metrics.json",
+        destination / "analysis" / "metrics.csv",
+        destination / "analysis" / "merged_results.jsonl",
+        destination / "analysis" / "errors.jsonl",
+    )
+    existing = [item for item in known_outputs if item.exists()]
+    if existing and not overwrite:
+        rendered = ", ".join(str(item) for item in existing[:5])
+        raise FileExistsError(f"Experiment outputs already exist: {rendered}; pass --overwrite")
+    if overwrite:
+        for item in existing:
+            item.unlink()
+    destination.mkdir(parents=True, exist_ok=True)
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    blind_dir.mkdir(parents=True, exist_ok=True)
+    private_dir.mkdir(parents=True, exist_ok=True)
+    return destination, raw_dir, blind_dir, private_dir
+
+
+def _guard_record(result: Any) -> dict[str, Any]:
+    return {
+        "prompt_risk_level": result.prompt_risk_level,
+        "prompt_risk_probability": result.prompt_risk_probability,
+        "latency_ms": result.latency_ms,
+        "scopes": result.scopes,
+    }
+
+
+def _assert_blind_record(record: dict[str, Any]) -> None:
+    forbidden = ("guard", "risk", "prediction", "original", "dataset_label")
+    for key in record:
+        lowered = key.casefold()
+        if any(word in lowered for word in forbidden):
+            raise AssertionError(f"Blind record leaks a protected field: {key!r}")
+
+
+def main() -> None:
+    args = parse_args()
+    _check_arguments(args)
+    style_control_prompt = _resolve_style_control_prompt(args)
+    destination, raw_dir, blind_dir, private_dir = _prepare_output(
+        args.output_dir, args.overwrite
+    )
+    run_config = _serializable_args(args)
+    run_config["resolved_style_control_system_prompt"] = style_control_prompt
+    run_config["guard_receives_style_control_system_prompt"] = False
+    write_json(destination / "run_config.json", run_config)
+
+    print(f"Loading Qwen3GuardTest thinking split: {args.dataset_path}")
+    all_samples = load_prompt_samples(args.dataset_path, cache_dir=args.cache_dir)
+    if args.sample_manifest is None:
+        manifest = create_manifest(
+            all_samples,
+            dataset_path=args.dataset_path,
+            sample_count=args.sample_count,
+            seed=args.seed,
+        )
+        manifest_source = None
+    else:
+        manifest_path = args.sample_manifest.expanduser().resolve()
+        manifest = read_json(manifest_path)
+        manifest_source = str(manifest_path)
+    selected = select_from_manifest(all_samples, manifest)
+    write_json(destination / "sample_manifest.json", manifest)
+
+    metadata_path = raw_dir / "run_metadata.json"
+    metadata: dict[str, Any] = {
+        "schema_version": 1,
+        "status": "loading_models",
+        "started_at_utc": _utc_now(),
+        "dataset_path": str(args.dataset_path),
+        "dataset_split": "thinking",
+        "sample_count": len(selected),
+        "manifest_source": manifest_source,
+        "models": {
+            "draft": args.draft_model,
+            "target": args.target_model,
+            "guard": args.guard_model,
+        },
+        "speculative_decoding": {
+            "implementation": "transformers assisted generation with speculative sampling",
+            "verifier": "target distribution rejection sampling with residual correction",
+            "num_assistant_tokens": args.num_assistant_tokens,
+            "assistant_schedule": "constant",
+            "assistant_confidence_threshold": 0.0,
+        },
+        "generation_control": {
+            "style_control_enabled": style_control_prompt is not None,
+            "system_prompt": style_control_prompt,
+            "draft_and_target_receive_identical_prompt": True,
+            "guard_receives_system_prompt": False,
+        },
+        "guard_evaluation": {
+            "mode": "one causal full forward after complete generation",
+            "strict_policy": "earliest adjacent UU or CC pair",
+            "loose_policy": "earliest adjacent UU pair",
+            "scopes": ["full_trace", "answer_only"],
+            "live_truncation": False,
+        },
+    }
+    write_json(metadata_path, metadata)
+    wall_started = time.perf_counter()
+
+    try:
+        print(f"Loading target model on {args.target_device}: {args.target_model}")
+        target_model, target_tokenizer = load_generation_model(
+            args.target_model,
+            device=args.target_device,
+            dtype=args.dtype,
+            local_files_only=args.local_files_only,
+            revision=args.target_revision,
+            attention_implementation=args.generation_attn_implementation,
+        )
+        print(f"Loading draft model on {args.draft_device}: {args.draft_model}")
+        draft_model, draft_tokenizer = load_generation_model(
+            args.draft_model,
+            device=args.draft_device,
+            dtype=args.dtype,
+            local_files_only=args.local_files_only,
+            revision=args.draft_revision,
+            attention_implementation=args.generation_attn_implementation,
+        )
+        assert_same_tokenizer(
+            target_tokenizer, draft_tokenizer, candidate_name="draft model"
+        )
+        print(f"Loading Stream Guard on {args.guard_device}: {args.guard_model}")
+        guard_model, guard_tokenizer = load_guard_model(
+            args.guard_model,
+            device=args.guard_device,
+            dtype=args.dtype,
+            local_files_only=args.local_files_only,
+            revision=args.guard_revision,
+            attention_implementation=args.guard_attn_implementation,
+        )
+        assert_same_tokenizer(
+            target_tokenizer, guard_tokenizer, candidate_name="Stream Guard"
+        )
+
+        metadata.update(collect_runtime_metadata())
+        metadata["status"] = "running"
+        metadata["model_placement"] = {
+            "target": args.target_device,
+            "draft": args.draft_device,
+            "guard": args.guard_device,
+        }
+        write_json(metadata_path, metadata)
+
+        try:
+            from tqdm.auto import tqdm
+        except ImportError:  # pragma: no cover - requirements include tqdm
+            def tqdm(iterable: Any, **_: Any) -> Any:
+                return iterable
+
+        generation_path = raw_dir / "generation_records.jsonl"
+        guard_tokens_path = raw_dir / "guard_token_records.jsonl"
+        rounds_path = raw_dir / "sd_round_records.jsonl"
+        blind_path = blind_dir / "blind_outputs.jsonl"
+        audit_path = private_dir / "original_dataset_audit.jsonl"
+        processed = 0
+        total_generated = 0
+        total_generation_latency_ms = 0.0
+        total_proposed = 0
+        total_accepted = 0
+
+        with ExitStack() as stack:
+            generation_writer = stack.enter_context(JsonlWriter(generation_path))
+            guard_token_writer = stack.enter_context(JsonlWriter(guard_tokens_path))
+            round_writer = stack.enter_context(JsonlWriter(rounds_path))
+            blind_writer = stack.enter_context(JsonlWriter(blind_path))
+            audit_writer = stack.enter_context(JsonlWriter(audit_path))
+
+            for sample_order, sample in tqdm(selected, desc="SD + Guard", unit="sample"):
+                sample_seed = stable_sample_seed(args.seed, sample.sample_id)
+                generation = generate_speculatively(
+                    target_model,
+                    draft_model,
+                    target_tokenizer,
+                    sample.prompt,
+                    target_device=args.target_device,
+                    draft_device=args.draft_device,
+                    sample_seed=sample_seed,
+                    enable_thinking=args.enable_thinking,
+                    max_new_tokens=args.max_new_tokens,
+                    num_assistant_tokens=args.num_assistant_tokens,
+                    do_sample=args.do_sample,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    top_k=args.top_k,
+                    system_prompt=style_control_prompt,
+                )
+                completion = split_completion(
+                    target_tokenizer,
+                    generation.generated_ids,
+                    thinking_expected=args.enable_thinking,
+                )
+                # Deliberately rebuild the Guard prefix from only the original user
+                # message. The generation-only style-control system prompt must not
+                # influence Guard classification.
+                guard_prompt_ids = prompt_token_ids(
+                    guard_tokenizer,
+                    sample.prompt,
+                    enable_thinking=args.enable_thinking,
+                    system_prompt=None,
+                )
+                guard = run_guard_full_forward(
+                    guard_model,
+                    guard_tokenizer,
+                    guard_prompt_ids,
+                    generation.generated_ids,
+                    answer_start_generated_index=completion.answer_start_generated_index,
+                    guard_device=args.guard_device,
+                )
+
+                generation_record = {
+                    "schema_version": 1,
+                    "sample_id": sample.sample_id,
+                    "sample_order": sample_order,
+                    "dataset_index": sample.dataset_index,
+                    "sample_seed": sample_seed,
+                    "prompt": sample.prompt,
+                    "completion": asdict(completion),
+                    "generation": {
+                        "prompt_token_count": len(generation.prompt_ids),
+                        "style_control_system_prompt_applied": (
+                            style_control_prompt is not None
+                        ),
+                        "generated_token_count": generation.generated_token_count,
+                        "generated_ids": list(generation.generated_ids),
+                        "latency_ms": generation.latency_ms,
+                        "tokens_per_second": generation.tokens_per_second,
+                        "stopped_on_eos": generation.stopped_on_eos,
+                        "truncated": generation.truncated,
+                    },
+                    "speculative_decoding": {
+                        "round_count": generation.round_count,
+                        "proposed_token_count": generation.proposed_token_count,
+                        "accepted_draft_token_count": generation.accepted_draft_token_count,
+                        "acceptance_rate": generation.acceptance_rate,
+                    },
+                    "guard": {
+                        **_guard_record(guard),
+                        "prompt_token_count": len(guard_prompt_ids),
+                        "style_control_system_prompt_visible": False,
+                    },
+                }
+                generation_writer.write(generation_record)
+
+                for token in guard.token_records:
+                    guard_token_writer.write(
+                        {
+                            "sample_id": sample.sample_id,
+                            "sample_order": sample_order,
+                            **token,
+                        }
+                    )
+                for round_ in generation.rounds:
+                    round_writer.write(
+                        {
+                            "sample_id": sample.sample_id,
+                            "sample_order": sample_order,
+                            **round_.to_dict(target_tokenizer),
+                        }
+                    )
+
+                blind_record = {
+                    "schema_version": 1,
+                    "sample_id": sample.sample_id,
+                    "sample_order": sample_order,
+                    "prompt": sample.prompt,
+                    "thinking": completion.thinking,
+                    "final_answer": completion.final_answer,
+                    "full_completion": completion.full_completion,
+                    "parse_status": completion.parse_status,
+                    "truncated": generation.truncated,
+                }
+                _assert_blind_record(blind_record)
+                blind_writer.write(blind_record)
+                audit_writer.write(
+                    {
+                        "sample_id": sample.sample_id,
+                        "sample_order": sample_order,
+                        "dataset_index": sample.dataset_index,
+                        "original_label": sample.original_label,
+                        "original_source": sample.original_source,
+                        "original_unsafe_type": sample.original_unsafe_type,
+                    }
+                )
+
+                processed += 1
+                total_generated += generation.generated_token_count
+                total_generation_latency_ms += generation.latency_ms
+                total_proposed += generation.proposed_token_count
+                total_accepted += generation.accepted_draft_token_count
+
+        metadata.update(
+            {
+                "status": "completed",
+                "completed_at_utc": _utc_now(),
+                "wall_time_seconds": time.perf_counter() - wall_started,
+                "processed_sample_count": processed,
+                "total_generated_tokens": total_generated,
+                "total_generation_latency_ms": total_generation_latency_ms,
+                "aggregate_generation_tokens_per_second": (
+                    None
+                    if total_generation_latency_ms <= 0
+                    else total_generated / (total_generation_latency_ms / 1000.0)
+                ),
+                "total_draft_proposed_tokens": total_proposed,
+                "total_draft_accepted_tokens": total_accepted,
+                "aggregate_acceptance_rate": (
+                    None if total_proposed == 0 else total_accepted / total_proposed
+                ),
+                "blind_output": str(blind_path),
+            }
+        )
+        write_json(metadata_path, metadata)
+        print(json.dumps(metadata, ensure_ascii=False, indent=2))
+        print(f"\nBlind outputs: {blind_path}")
+        print(f"Full experiment: {destination}")
+    except BaseException as exc:
+        metadata.update(
+            {
+                "status": "failed",
+                "failed_at_utc": _utc_now(),
+                "wall_time_seconds": time.perf_counter() - wall_started,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            }
+        )
+        write_json(metadata_path, metadata)
+        raise
+
+
+if __name__ == "__main__":
+    main()

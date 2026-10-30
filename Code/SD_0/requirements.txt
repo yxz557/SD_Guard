@@ -1,0 +1,8 @@
+# Keep the host's CUDA-compatible PyTorch wheel when possible.
+torch>=2.6
+transformers==4.57.6
+datasets>=3.0,<5
+accelerate>=1.1
+safetensors>=0.4
+tqdm>=4.66
+

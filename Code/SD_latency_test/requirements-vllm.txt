@@ -1,0 +1,8 @@
+# Requires Python >=3.10,<3.15. Install this in a dedicated Linux environment
+# created explicitly with python3.10 or python3.11. Do not mix it with the
+# Transformers 4.57.6 environment from requirements.txt.
+# The PyPI vLLM 0.31.0 wheel defaults to CUDA 13.0. On a host whose NVIDIA
+# driver reports CUDA 12.9, do not install this file with plain pip; use the
+# commit-pinned cu129 `uv pip install` command documented in README.md.
+vllm==0.31.0
+
