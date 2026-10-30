@@ -1,4 +1,36 @@
-from agentdojo.benchmark import convert_old_messages_format
+from agentdojo.benchmark import _is_context_length_error, convert_old_messages_format
+
+
+class _StubProviderError(Exception):
+    def __init__(self, message: str, *, code: str | int | None = None, param: str | None = None):
+        super().__init__(message)
+        self.code = code
+        self.param = param
+
+
+def test_context_length_error_recognizes_vllm_input_tokens_format():
+    error = _StubProviderError(
+        "This model's maximum context length is 40960 tokens. However, your prompt contains at least 40961 "
+        "input tokens. Please reduce the length of the input prompt.",
+        code=400,
+        param="input_tokens",
+    )
+
+    assert _is_context_length_error(error)
+
+
+def test_context_length_error_recognizes_openai_code_and_legacy_params():
+    assert _is_context_length_error(
+        _StubProviderError("request too large", code="context_length_exceeded", param=None)
+    )
+    assert _is_context_length_error(_StubProviderError("no output capacity", code=400, param="max_tokens"))
+    assert _is_context_length_error(_StubProviderError("max_new_tokens is too large", code=422, param=None))
+
+
+def test_context_length_error_does_not_hide_unrelated_bad_request():
+    error = _StubProviderError("tool schema is invalid", code=400, param="tools")
+
+    assert not _is_context_length_error(error)
 
 
 def test_convert_old_messages_format():

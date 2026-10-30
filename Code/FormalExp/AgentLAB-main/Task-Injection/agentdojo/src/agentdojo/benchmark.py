@@ -38,6 +38,40 @@ def aggregate_results(results: list[dict[tuple[str, str], bool]]) -> float:
     return sum(all_results) / len(all_results)
 
 
+def _is_context_length_error(error: BaseException) -> bool:
+    """Recognize context-window errors across OpenAI-compatible providers.
+
+    OpenAI, vLLM, and other compatible servers use different ``code``,
+    ``param``, and message values for the same condition. In particular, vLLM
+    can return HTTP 400 with ``param=input_tokens`` and the phrase ``maximum
+    context length`` instead of ``code=context_length_exceeded``.
+    """
+
+    code = str(getattr(error, "code", "")).lower()
+    param = str(getattr(error, "param", "")).lower()
+    message = f"{error!s} {error!r}".lower()
+
+    if code == "context_length_exceeded" or "context_length_exceeded" in message:
+        return True
+    if param == "max_tokens":
+        return True
+    if "max_new_tokens" in message:
+        return True
+
+    context_phrases = (
+        "maximum context length",
+        "maximum sequence length",
+        "reduce the length of the messages",
+        "reduce the length of the input prompt",
+        "prompt is too long",
+        "input is too long",
+    )
+    if any(phrase in message for phrase in context_phrases):
+        return True
+
+    return param == "input_tokens" and "context" in message and "length" in message
+
+
 def run_task_with_injection_tasks(
     suite: TaskSuite,
     agent_pipeline: BasePipelineElement,
@@ -117,8 +151,8 @@ def run_task_with_injection_tasks(
                     utility, security = suite.run_task_with_pipeline(
                         agent_pipeline, user_task, injection_task, task_injections
                     )
-                except BadRequestError as e:
-                    if e.code == "context_length_exceeded" or e.param == "max_tokens" or "reduce the length of the messages." in repr(e):
+                except (BadRequestError, UnprocessableEntityError) as e:
+                    if _is_context_length_error(e):
                         logger.log_error(
                             f"Skipping task '{user_task.ID}' with '{injection_task.ID}' due to context_length_exceeded: {e}"
                         )
@@ -279,15 +313,8 @@ def run_task_without_injection_tasks(
     ) as logger:
         try:
             utility, security = suite.run_task_with_pipeline(agent_pipeline, task, injection_task=None, injections={})
-        except BadRequestError as e:
-            if e.code == "context_length_exceeded" or e.param == "max_tokens" or "reduce the length of the messages." in repr(e):
-                logger.log_error(f"Skipping task {task.ID} due to context_length_exceeded: {e}")
-                utility = False
-                security = True
-            else:
-                raise e
-        except UnprocessableEntityError as e:
-            if "max_new_tokens" in str(e):
+        except (BadRequestError, UnprocessableEntityError) as e:
+            if _is_context_length_error(e):
                 logger.log_error(f"Skipping task {task.ID} due to context_length_exceeded: {e}")
                 utility = False
                 security = True
