@@ -127,7 +127,7 @@ def run_task_with_injection_tasks(
                     injection_task=injection_task.ID,
                     logdir=logdir,
                 )
-            except (ValidationError, FileNotFoundError):
+            except (ValidationError, FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
                 task_result = None
         else:
             task_result = None
@@ -292,7 +292,7 @@ def run_task_without_injection_tasks(
                 injection_task="none",
                 logdir=logdir,
             )
-        except (ValidationError, FileNotFoundError):
+        except (ValidationError, FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
             task_result = None
     else:
         task_result = None
@@ -433,11 +433,15 @@ def load_task_results(
 
     # Check if the result is in the old format (without content blocks)
     # Old format didn't have agentdojo_package_version field
-    if "agentdojo_package_version" not in res_dict:
+    if (
+        isinstance(res_dict, dict)
+        and "agentdojo_package_version" not in res_dict
+        and isinstance(res_dict.get("messages"), list)
+    ):
         # Convert messages to the new format with content blocks
         res_dict["messages"] = convert_old_messages_format(res_dict["messages"])
 
-    return TaskResults(**res_dict)
+    return TaskResults.model_validate(res_dict)
 
 
 def load_suite_results(
