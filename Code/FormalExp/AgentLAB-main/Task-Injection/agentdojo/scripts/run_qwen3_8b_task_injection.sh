@@ -22,6 +22,7 @@ BENCHMARK_VERSION="${BENCHMARK_VERSION:-v1.2.1}"
 TARGET_MODEL_ID="${TARGET_MODEL_ID:-/home/model_and_data/yxz/model/Qwen3-8B}"
 RUN_TAG="${RUN_TAG:-ctx40k_r1}"
 SAMPLE_SEED="${SAMPLE_SEED:-20261030}"
+WORKERS="${TASK_INJECTION_WORKERS:-1}"
 
 SUITE_SPEC=""
 PAIR_SPEC=""
@@ -56,6 +57,7 @@ Reproducibility and storage:
                       result-root/manifests/pairs_<N>_seed_<seed>.json.
   --run-id ID         Stable provenance id used by frozen traces.
   --run-tag TAG       Changes default paths and the default run id.
+  --workers N         Concurrent independent benchmark jobs (default: 1).
 
 Runtime overrides:
   --python-bin PATH
@@ -76,12 +78,14 @@ Examples:
   # Two smoke pairs per suite for the three attacks not previously exercised.
   ./scripts/run_qwen3_8b_task_injection.sh \
     --suite full --pairs 2 \
-    --attack ignore_previous,important_instructions,tool_knowledge
+    --attack ignore_previous,important_instructions,tool_knowledge \
+    --workers 2
 
   # All pairs in all suites for the two high-yield attacks.
   ./scripts/run_qwen3_8b_task_injection.sh \
     --suite full --pairs full \
-    --attack important_instructions,tool_knowledge
+    --attack important_instructions,tool_knowledge \
+    --workers 4
 
   # Later fill in the other three attacks in the same campaign.
   ./scripts/run_qwen3_8b_task_injection.sh \
@@ -148,6 +152,11 @@ while (( $# > 0 )); do
       RUN_TAG=$2
       shift 2
       ;;
+    --workers)
+      require_value "$1" "$#"
+      WORKERS=$2
+      shift 2
+      ;;
     --python-bin)
       require_value "$1" "$#"
       PYTHON_BIN=$2
@@ -194,6 +203,10 @@ done
 [[ -n "${PAIR_SPEC}" ]] || die "--pairs is required"
 [[ -n "${ATTACK_SPEC}" ]] || die "--attack is required"
 [[ "${SAMPLE_SEED}" =~ ^-?[0-9]+$ ]] || die "--seed must be an integer"
+[[ "${WORKERS}" =~ ^[1-9][0-9]*$ ]] || die "--workers must be a positive integer"
+if (( WORKERS > 1 )) && (( BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 1) )); then
+  die "--workers greater than 1 requires Bash 5.1 or newer"
+fi
 if [[ "${PAIR_SPEC}" != "full" && ! "${PAIR_SPEC}" =~ ^[1-9][0-9]*$ ]]; then
   die "--pairs must be a positive integer or full"
 fi
@@ -271,11 +284,17 @@ elif [[ -n "${MANIFEST_PATH}" ]]; then
 fi
 CAMPAIGN_CONFIG="${LOG_ROOT}/campaign_config.json"
 
+ACTIVE_JOB_COUNT=0
+declare -A ACTIVE_JOB_LABELS=()
+
 export LOCAL_LLM_PORT
 
 on_error() {
   local exit_code=$?
   local line_number=$1
+  if declare -F stop_running_jobs >/dev/null; then
+    stop_running_jobs
+  fi
   echo >&2
   echo "ERROR: Task Injection run stopped at line ${line_number} (exit ${exit_code})." >&2
   echo "Completed pair logs were kept under: ${LOG_ROOT}" >&2
@@ -284,11 +303,91 @@ on_error() {
 }
 trap 'on_error ${LINENO}' ERR
 
+on_signal() {
+  echo >&2
+  echo "Interrupted; stopping active benchmark jobs..." >&2
+  stop_running_jobs
+  exit 130
+}
+trap on_signal INT TERM
+
 announce() {
   echo
   echo "======================================================================"
   echo "$1"
   echo "======================================================================"
+}
+
+stop_running_jobs() {
+  local pid
+  for pid in "${!ACTIVE_JOB_LABELS[@]}"; do
+    # The background shell normally has the Python benchmark as its direct
+    # child. Stop that child first so Ctrl+C or a failed sibling cannot leave
+    # an orphan benchmark process behind.
+    pkill -TERM -P "${pid}" 2>/dev/null || true
+    kill -TERM "${pid}" 2>/dev/null || true
+  done
+  for pid in "${!ACTIVE_JOB_LABELS[@]}"; do
+    wait "${pid}" 2>/dev/null || true
+  done
+  ACTIVE_JOB_LABELS=()
+  ACTIVE_JOB_COUNT=0
+}
+
+reap_one_job() {
+  local completed_pid=""
+  local status=0
+  local label=""
+
+  if wait -n -p completed_pid; then
+    status=0
+  else
+    status=$?
+  fi
+  label="${ACTIVE_JOB_LABELS[${completed_pid}]:-unknown}"
+  unset 'ACTIVE_JOB_LABELS['"${completed_pid}"']'
+  ACTIVE_JOB_COUNT=$((ACTIVE_JOB_COUNT - 1))
+
+  if (( status != 0 )); then
+    echo "ERROR: parallel job failed (${label}, pid=${completed_pid}, exit=${status})." >&2
+    return "${status}"
+  fi
+  echo "Completed job: ${label} (pid=${completed_pid})"
+}
+
+submit_job() {
+  local label=$1
+  shift
+
+  if (( WORKERS == 1 )); then
+    "$@"
+    return
+  fi
+
+  while (( ACTIVE_JOB_COUNT >= WORKERS )); do
+    if ! reap_one_job; then
+      stop_running_jobs
+      return 1
+    fi
+  done
+
+  (
+    trap - ERR INT TERM
+    "$@"
+  ) &
+  local pid=$!
+  ACTIVE_JOB_LABELS["${pid}"]="${label}"
+  (( ACTIVE_JOB_COUNT += 1 ))
+  echo "Started job: ${label} (pid=${pid}, active=${ACTIVE_JOB_COUNT}/${WORKERS})"
+}
+
+wait_for_all_jobs() {
+  while (( ACTIVE_JOB_COUNT > 0 )); do
+    if ! reap_one_job; then
+      stop_running_jobs
+      return 1
+    fi
+  done
 }
 
 suite_is_selected() {
@@ -360,27 +459,39 @@ run_full_attack_suite() {
     "${BENCHMARK_ARGS[@]}"
 }
 
-run_sampled_attack() {
+run_sampled_attack_group() {
   local attack_name=$1
-  local suite_name user_task_id injection_task_list injection_task_id
+  local suite_name=$2
+  local user_task_id=$3
+  local injection_task_list=$4
+  local injection_task_id
   local injection_args=()
+
+  for injection_task_id in ${injection_task_list}; do
+    injection_args+=(--injection-task "${injection_task_id}")
+  done
+  echo "[${attack_name}] ${suite_name}/${user_task_id}: ${injection_task_list}"
+  benchmark_base_args
+  "${PYTHON_BIN}" -m agentdojo.scripts.benchmark \
+    --suite "${suite_name}" \
+    --user-task "${user_task_id}" \
+    "${injection_args[@]}" \
+    --attack "${attack_name}" \
+    "${BENCHMARK_ARGS[@]}"
+}
+
+schedule_sampled_attack() {
+  local attack_name=$1
+  local suite_name user_task_id injection_task_list
 
   announce "Sampled attack: ${attack_name} / ${PAIR_SPEC} pair(s) per selected suite"
   while read -r suite_name user_task_id injection_task_list; do
     [[ -n "${suite_name}" ]] || continue
     suite_is_selected "${suite_name}" || continue
-    injection_args=()
-    for injection_task_id in ${injection_task_list}; do
-      injection_args+=(--injection-task "${injection_task_id}")
-    done
-    echo "[${attack_name}] ${suite_name}/${user_task_id}: ${injection_task_list}"
-    benchmark_base_args
-    "${PYTHON_BIN}" -m agentdojo.scripts.benchmark \
-      --suite "${suite_name}" \
-      --user-task "${user_task_id}" \
-      "${injection_args[@]}" \
-      --attack "${attack_name}" \
-      "${BENCHMARK_ARGS[@]}"
+    submit_job \
+      "${attack_name}/${suite_name}/${user_task_id}/${injection_task_list}" \
+      run_sampled_attack_group \
+      "${attack_name}" "${suite_name}" "${user_task_id}" "${injection_task_list}"
   done <<< "${GROUPS_OUTPUT}"
 }
 
@@ -396,6 +507,7 @@ echo "Suites:               ${SELECTED_SUITES[*]}"
 echo "Pairs per suite:      ${PAIR_SPEC}"
 echo "Attacks:              ${SELECTED_ATTACKS[*]}"
 echo "Sample seed:          ${SAMPLE_SEED}"
+echo "Concurrent jobs:      ${WORKERS}"
 echo "Intermediate logs:    ${LOG_ROOT}"
 echo "Result root:          ${RESULT_ROOT}"
 echo "Run id:               ${RUN_ID}"
@@ -430,19 +542,23 @@ fi
 
 if [[ "${INCLUDE_CLEAN}" == true ]]; then
   for suite_name in "${SELECTED_SUITES[@]}"; do
-    run_clean_suite "${suite_name}"
+    submit_job "clean/${suite_name}" run_clean_suite "${suite_name}"
   done
+  wait_for_all_jobs
 fi
 
 for attack_name in "${SELECTED_ATTACKS[@]}"; do
   if [[ "${PAIR_SPEC}" == "full" ]]; then
     for suite_name in "${SELECTED_SUITES[@]}"; do
-      run_full_attack_suite "${suite_name}" "${attack_name}"
+      submit_job \
+        "${attack_name}/${suite_name}" \
+        run_full_attack_suite "${suite_name}" "${attack_name}"
     done
   else
-    run_sampled_attack "${attack_name}"
+    schedule_sampled_attack "${attack_name}"
   fi
 done
+wait_for_all_jobs
 
 if [[ "${SKIP_EXPORT}" == false ]]; then
   announce "Freezing all completed campaign trajectories"
