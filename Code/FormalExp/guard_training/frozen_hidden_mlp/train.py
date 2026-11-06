@@ -15,13 +15,15 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from guard_training.common.feature_loading import load_feature_matrix
 from guard_training.common.metrics import binary_metrics, choose_fbeta_threshold
+from guard_training.common.offline_dataset import load_offline_split
 from guard_training.frozen_hidden_mlp.model import HiddenStateClassifier
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a frozen-hidden-state classifier head.")
-    parser.add_argument("--feature-root", type=Path, required=True)
-    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--feature-root", type=Path, default=None)
+    parser.add_argument("--manifest", type=Path, default=None)
+    parser.add_argument("--offline-dataset", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--feature", default="trace_last")
     parser.add_argument("--layer", type=int, default=-1)
@@ -97,12 +99,31 @@ def main() -> None:
         )
     )
 
-    train_x, train_y, _ = load_feature_matrix(
-        args.feature_root, args.manifest, "train", args.feature, args.layer
-    )
-    validation_x, validation_y, validation_rows = load_feature_matrix(
-        args.feature_root, args.manifest, "validation", args.feature, args.layer
-    )
+    if args.offline_dataset is not None:
+        train_x, train_y, _, dataset_config = load_offline_split(
+            args.offline_dataset, "train"
+        )
+        validation_x, validation_y, _, validation_config = load_offline_split(
+            args.offline_dataset, "validation"
+        )
+        if dataset_config != validation_config:
+            raise ValueError("Compact dataset configuration changed between split loads")
+        selected_feature = str(dataset_config["feature"])
+        selected_layer = int(dataset_config["layer"])
+    else:
+        if args.feature_root is None or args.manifest is None:
+            raise ValueError(
+                "Pass --offline-dataset, or both --feature-root and --manifest"
+            )
+        train_x, train_y, _ = load_feature_matrix(
+            args.feature_root, args.manifest, "train", args.feature, args.layer
+        )
+        validation_x, validation_y, _ = load_feature_matrix(
+            args.feature_root, args.manifest, "validation", args.feature, args.layer
+        )
+        dataset_config = None
+        selected_feature = args.feature
+        selected_layer = args.layer
     positive_weight = resolve_positive_weight(args.positive_weight, train_y)
     class_weights = torch.tensor([1.0, positive_weight], dtype=torch.float32, device=device)
 
@@ -130,10 +151,19 @@ def main() -> None:
     config = vars(args).copy()
     config.update(
         {
-            "feature_root": str(args.feature_root.resolve()),
-            "manifest": str(args.manifest.resolve()),
+            "feature_root": (
+                str(args.feature_root.resolve()) if args.feature_root is not None else None
+            ),
+            "manifest": str(args.manifest.resolve()) if args.manifest is not None else None,
+            "offline_dataset": (
+                str(args.offline_dataset.resolve())
+                if args.offline_dataset is not None
+                else None
+            ),
             "output_dir": str(args.output_dir.resolve()),
             "device_resolved": str(device),
+            "feature_selected": selected_feature,
+            "layer_selected": selected_layer,
             "input_dim": int(train_x.shape[1]),
             "train_samples": int(train_y.numel()),
             "train_positives": int(train_y.sum().item()),
@@ -199,8 +229,9 @@ def main() -> None:
                             "hidden_dim": args.hidden_dim,
                             "dropout": args.dropout,
                         },
-                        "feature": args.feature,
-                        "layer": args.layer,
+                        "feature": selected_feature,
+                        "layer": selected_layer,
+                        "offline_dataset_config": dataset_config,
                         "threshold": threshold,
                         "validation_metrics": metrics,
                         "train_config": config,

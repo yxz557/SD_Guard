@@ -11,14 +11,16 @@ import torch
 
 from guard_training.common.feature_loading import load_feature_matrix
 from guard_training.common.metrics import binary_metrics
+from guard_training.common.offline_dataset import load_offline_split
 from guard_training.frozen_hidden_mlp.model import HiddenStateClassifier
 from guard_training.frozen_hidden_mlp.train import predict_scores
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate a frozen-hidden-state classifier.")
-    parser.add_argument("--feature-root", type=Path, required=True)
-    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--feature-root", type=Path, default=None)
+    parser.add_argument("--manifest", type=Path, default=None)
+    parser.add_argument("--offline-dataset", type=Path, default=None)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--split", default="test")
@@ -52,13 +54,29 @@ def main() -> None:
         )
     )
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
-    features, labels, rows = load_feature_matrix(
-        args.feature_root,
-        args.manifest,
-        args.split,
-        checkpoint["feature"],
-        int(checkpoint["layer"]),
-    )
+    if args.offline_dataset is not None:
+        features, labels, rows, dataset_config = load_offline_split(
+            args.offline_dataset, args.split
+        )
+        if str(dataset_config["feature"]) != str(checkpoint["feature"]):
+            raise ValueError("Checkpoint feature does not match compact dataset")
+        if int(dataset_config["layer"]) != int(checkpoint["layer"]):
+            raise ValueError("Checkpoint layer does not match compact dataset")
+        expected_dataset = checkpoint.get("offline_dataset_config")
+        if expected_dataset is not None and dataset_config != expected_dataset:
+            raise ValueError("Checkpoint was trained on a different compact dataset")
+    else:
+        if args.feature_root is None or args.manifest is None:
+            raise ValueError(
+                "Pass --offline-dataset, or both --feature-root and --manifest"
+            )
+        features, labels, rows = load_feature_matrix(
+            args.feature_root,
+            args.manifest,
+            args.split,
+            checkpoint["feature"],
+            int(checkpoint["layer"]),
+        )
     model = HiddenStateClassifier(**checkpoint["model_config"])
     model.load_state_dict(checkpoint["model_state"])
     model.to(device)

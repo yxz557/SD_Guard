@@ -123,15 +123,42 @@ python -m guard_training.frozen_hidden_mlp.build_split_manifest \
 
 同一任务组合的所有攻击方式必须进入同一个 split。候选划分会尽量匹配 `suite × attack_type × label` 的总体分布，但这些元数据不会输入模型。
 
-## 3. 训练第一版 MLP
+## 3. 物化第一版紧凑离线数据集
+
+13GB左右的总特征库用于长期保留所有层、pooling 和工具步骤。第一版 MLP 只需要 `trace_last` 的 `layer=-1`，应先一次性导出紧凑 train/validation/test 文件：
+
+```bash
+export OFFLINE_DATASET="$FEATURE_ROOT/offline_datasets/trace_last_layer_final"
+
+python -m guard_training.frozen_hidden_mlp.materialize_dataset \
+  --feature-root "$FEATURE_ROOT" \
+  --manifest "$FEATURE_ROOT/split_manifest.jsonl" \
+  --output-dir "$OFFLINE_DATASET" \
+  --feature trace_last \
+  --layer -1 \
+  --storage-dtype float16
+```
+
+输出为：
+
+```text
+dataset_config.json
+train.safetensors
+train.metadata.jsonl
+validation.safetensors
+validation.metadata.jsonl
+test.safetensors
+test.metadata.jsonl
+```
+
+对约4700条、数千维 hidden state，三份紧凑特征通常只有几十 MB。后续所有随机种子训练都只读取这些文件，不再扫描13GB总特征库。
+
+## 4. 训练第一版 MLP
 
 ```bash
 python -m guard_training.frozen_hidden_mlp.train \
-  --feature-root /root/autodl-tmp/Code/SD_Guard/results/formal/guard_training/qwen3_4b_task_injection_ctx40k_r1 \
-  --manifest /root/autodl-tmp/Code/SD_Guard/results/formal/guard_training/qwen3_4b_task_injection_ctx40k_r1/split_manifest.jsonl \
+  --offline-dataset "$OFFLINE_DATASET" \
   --output-dir /root/autodl-tmp/Code/SD_Guard/results/formal/guard_training/qwen3_4b_task_injection_ctx40k_r1/experiments/trace_last_layer_last_mlp_seed42 \
-  --feature trace_last \
-  --layer -1 \
   --head mlp \
   --hidden-dim 256 \
   --dropout 0.1 \
@@ -159,14 +186,13 @@ Linear head 基线只需改为：
 --head linear
 ```
 
-## 4. 独立测试
+## 5. 独立测试
 
 训练过程只查看 validation。固定最佳 checkpoint 和 validation 上选择的 F2 阈值后，再运行：
 
 ```bash
 python -m guard_training.frozen_hidden_mlp.evaluate \
-  --feature-root /root/autodl-tmp/Code/SD_Guard/results/formal/guard_training/qwen3_4b_task_injection_ctx40k_r1 \
-  --manifest /root/autodl-tmp/Code/SD_Guard/results/formal/guard_training/qwen3_4b_task_injection_ctx40k_r1/split_manifest.jsonl \
+  --offline-dataset "$OFFLINE_DATASET" \
   --checkpoint /root/autodl-tmp/Code/SD_Guard/results/formal/guard_training/qwen3_4b_task_injection_ctx40k_r1/experiments/trace_last_layer_last_mlp_seed42/best.pt \
   --output-dir /root/autodl-tmp/Code/SD_Guard/results/formal/guard_training/qwen3_4b_task_injection_ctx40k_r1/experiments/trace_last_layer_last_mlp_seed42/evaluation \
   --split test
@@ -174,7 +200,51 @@ python -m guard_training.frozen_hidden_mlp.evaluate \
 
 输出总体、按 suite 和按 attack 的指标与逐样本预测。
 
-## 5. 导出工具步骤风险曲线
+每次训练都会保存独立 `best.pt`，包含 MLP/Linear权重、输入维度、特征定义、validation阈值和最佳 validation 指标。
+
+## 6. 连续运行10个随机种子并聚合
+
+```bash
+export REPEATED_ROOT="$FEATURE_ROOT/experiments/trace_last_final_mlp_10seeds"
+
+python -m guard_training.frozen_hidden_mlp.run_repeated \
+  --offline-dataset "$OFFLINE_DATASET" \
+  --output-root "$REPEATED_ROOT" \
+  --seeds 42 43 44 45 46 47 48 49 50 51 \
+  --head mlp \
+  --hidden-dim 256 \
+  --dropout 0.1 \
+  --positive-weight inverse \
+  --learning-rate 1e-3 \
+  --weight-decay 1e-2 \
+  --batch-size 128 \
+  --epochs 50 \
+  --patience 5
+```
+
+每个 `seed_N/` 单独保存：
+
+```text
+best.pt
+train_config.json
+history.jsonl
+best_validation_metrics.json
+train.log
+evaluate.log
+evaluation/test_metrics.json
+evaluation/test_predictions.jsonl
+```
+
+总目录额外保存：
+
+```text
+aggregate_test_metrics.json
+aggregate.log
+```
+
+聚合报告包含每个数值指标的 mean、sample standard deviation、min、max 和10次原始值，也保留每次 run 的 checkpoint 和指标路径。10次实验必须共用同一个 split manifest，且不能根据 test 结果挑选“最好的一次”。
+
+## 7. 导出工具步骤风险曲线
 
 ```bash
 python -m guard_training.frozen_hidden_mlp.score_steps \
