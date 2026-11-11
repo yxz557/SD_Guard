@@ -12,6 +12,9 @@ The main dataset policy is:
 - main validation/test: nothink only;
 - public validation/test pairs: auxiliary files only, never main train;
 - exact serialized duplicates are removed, with local nothink preferred;
+- identical content may legitimately come from different task pairs when an
+  injection is never observed; same-label copies are collapsed globally, while
+  conflicting-label copies are quarantined in `excluded.jsonl`;
 - incompatible Qwen feature configurations fail fast.
 
 ## 1. Verify the two existing local paths

@@ -239,41 +239,66 @@ def deduplicate_serialized(
     local_rows: list[dict[str, Any]],
     public_rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    kept: list[dict[str, Any]] = []
+    local_source = str(local_rows[0]["data_source"]) if local_rows else ""
+    without_hash: list[dict[str, Any]] = []
     removed: list[dict[str, Any]] = []
-    by_hash: dict[str, dict[str, Any]] = {}
-    # Local rows win an exact duplicate tie because local nothink is the target domain.
+    by_hash: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in [*local_rows, *public_rows]:
         serialized_hash = str(row.get("serialized_sha256") or "")
         if not serialized_hash:
-            kept.append(row)
+            without_hash.append(row)
             continue
-        previous = by_hash.get(serialized_hash)
-        if previous is None:
-            by_hash[serialized_hash] = row
-            kept.append(row)
+        by_hash[serialized_hash].append(row)
+
+    def retention_priority(row: dict[str, Any]) -> tuple[int, str]:
+        source = str(row["data_source"])
+        split = str(row["split"])
+        # Preserve the target-domain evaluation rows first. For public-only
+        # duplicates, prefer train because public validation/test are auxiliary.
+        if source == local_source:
+            rank = {"test": 0, "validation": 1, "train": 2}[split]
+        else:
+            rank = {"train": 3, "test": 4, "validation": 5}[split]
+        return rank, str(row["sample_id"])
+
+    kept = list(without_hash)
+    for serialized_hash, bucket in by_hash.items():
+        if len(bucket) == 1:
+            kept.append(bucket[0])
             continue
-        if int(previous["label"]) != int(row["label"]):
-            raise ValueError(
-                "Identical serialized trace has conflicting labels: "
-                f"{previous['sample_id']} vs {row['sample_id']}"
+
+        labels = {int(row["label"]) for row in bucket}
+        if len(labels) > 1:
+            sample_ids = sorted(str(row["sample_id"]) for row in bucket)
+            for row in bucket:
+                excluded = dict(row)
+                excluded["exclusion_reason"] = (
+                    "conflicting_labels_for_identical_serialized_trace"
+                )
+                excluded["duplicate_bucket_size"] = len(bucket)
+                excluded["duplicate_sample_ids"] = sample_ids
+                excluded["serialized_sha256"] = serialized_hash
+                removed.append(excluded)
+            continue
+
+        canonical = min(bucket, key=retention_priority)
+        kept.append(canonical)
+        for row in bucket:
+            if row is canonical:
+                continue
+            duplicate = dict(row)
+            duplicate["exclusion_reason"] = (
+                f"exact_serialized_duplicate_of:{canonical['sample_id']}"
             )
-        if str(previous["group_id"]) != str(row["group_id"]):
-            raise ValueError(
-                "Identical serialized trace belongs to different task groups: "
-                f"{previous['sample_id']} vs {row['sample_id']}"
-            )
-        if str(previous["split"]) != str(row["split"]):
-            raise ValueError(
-                "Identical serialized trace crosses splits: "
-                f"{previous['sample_id']} vs {row['sample_id']}"
-            )
-        duplicate = dict(row)
-        duplicate["exclusion_reason"] = (
-            f"exact_serialized_duplicate_of:{previous['sample_id']}"
-        )
-        removed.append(duplicate)
-    local_source = str(local_rows[0]["data_source"]) if local_rows else ""
+            duplicate["duplicate_bucket_size"] = len(bucket)
+            duplicate["duplicate_crosses_groups"] = len(
+                {str(item["group_id"]) for item in bucket}
+            ) > 1
+            duplicate["duplicate_crosses_splits"] = len(
+                {str(item["split"]) for item in bucket}
+            ) > 1
+            removed.append(duplicate)
+
     return (
         [row for row in kept if row.get("data_source") == local_source],
         [row for row in kept if row.get("data_source") != local_source],
@@ -441,7 +466,7 @@ def main() -> None:
     public_rows, public_unmapped = with_assignment(
         public_metadata, assignment, args.public_source_name, args.unmapped_public
     )
-    local_rows, public_rows, exact_duplicates = deduplicate_serialized(
+    local_rows, public_rows, serialized_exclusions = deduplicate_serialized(
         local_rows, public_rows
     )
     validate_group_isolation(local_rows, public_rows)
@@ -529,7 +554,7 @@ def main() -> None:
     atomic_write(manifest_path, manifest_bytes)
 
     excluded_path = output_dir / "excluded.jsonl"
-    excluded_rows = [*public_unmapped, *exact_duplicates]
+    excluded_rows = [*public_unmapped, *serialized_exclusions]
     excluded_bytes = b"".join(
         (json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
         for row in excluded_rows
@@ -539,11 +564,19 @@ def main() -> None:
     summary = {
         "assignment": assignment_provenance,
         "excluded": {
-            "exact_serialized_duplicates": len(exact_duplicates),
+            "by_reason": dict(
+                sorted(
+                    Counter(
+                        str(row.get("exclusion_reason", "unknown")).split(":", 1)[0]
+                        for row in excluded_rows
+                    ).items()
+                )
+            ),
             "public_groups_absent_from_local_split": len(
                 {str(row["group_id"]) for row in public_unmapped}
             ),
             "public_samples_absent_from_local_split": len(public_unmapped),
+            "serialized_content_exclusions": len(serialized_exclusions),
         },
         "feature_compatibility": compatibility,
         "local": {
