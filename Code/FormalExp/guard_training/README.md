@@ -1,5 +1,10 @@
 # SD_Guard：完整 Trace 冻结特征分类器
 
+## 实验文档
+
+- [实验 01：方法、配置与完整运行命令](docs/experiment_01_trace_last_mlp_method.md)
+- [实验 01：10-seed 结果与分组分析](docs/experiment_01_trace_last_mlp_results.md)
+
 该目录实现第一阶段 guard 训练流程：
 
 1. 使用普通 `Qwen/Qwen3-4B` 对每条完整 AgentDojo trace 做一次纯 forward/prefill；
