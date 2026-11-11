@@ -249,6 +249,18 @@ aggregate.log
 
 聚合报告包含每个数值指标的 mean、sample standard deviation、min、max 和10次原始值，也保留每次 run 的 checkpoint 和指标路径。10次实验必须共用同一个 split manifest，且不能根据 test 结果挑选“最好的一次”。
 
+每个 `history.jsonl` 的每轮记录同时包含 `train_loss` 和
+`validation_loss`。两者使用该次实验 `--positive-weight` 解析出的同一个
+cross-entropy 目标。画出多个随机种子的个体曲线、均值与标准差带：
+
+```bash
+python -m guard_training.frozen_hidden_mlp.plot_loss_curves \
+  --runs-root "$REPEATED_ROOT" \
+  --output "$REPEATED_ROOT/training_validation_loss.png"
+```
+
+画图是独立步骤，不会因画图环境问题影响已经完成的训练。
+
 ## 7. 导出工具步骤风险曲线
 
 ```bash

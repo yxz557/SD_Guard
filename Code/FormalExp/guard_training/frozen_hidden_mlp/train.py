@@ -83,6 +83,30 @@ def predict_scores(
     return torch.cat(outputs).numpy()
 
 
+def evaluate_loss(
+    model: nn.Module,
+    features: torch.Tensor,
+    labels: torch.Tensor,
+    criterion: nn.Module,
+    batch_size: int,
+    device: torch.device,
+) -> float:
+    model.eval()
+    total_loss = 0.0
+    total_examples = 0
+    dataset = TensorDataset(features, labels)
+    with torch.inference_mode():
+        for batch_x, batch_y in DataLoader(dataset, batch_size=batch_size):
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
+            loss = criterion(model(batch_x), batch_y)
+            total_loss += float(loss.item()) * batch_y.shape[0]
+            total_examples += int(batch_y.shape[0])
+    if total_examples == 0:
+        raise ValueError("Cannot evaluate loss on an empty split")
+    return total_loss / total_examples
+
+
 def atomic_torch_save(payload: dict[str, Any], path: Path) -> None:
     temporary = path.with_name(path.name + ".tmp")
     torch.save(payload, temporary)
@@ -203,12 +227,21 @@ def main() -> None:
             validation_scores = predict_scores(
                 model, validation_x, args.batch_size, device
             )
+            validation_loss = evaluate_loss(
+                model,
+                validation_x,
+                validation_y,
+                criterion,
+                args.batch_size,
+                device,
+            )
             threshold = choose_fbeta_threshold(validation_labels_np, validation_scores, beta=2.0)
             metrics = binary_metrics(validation_labels_np, validation_scores, threshold)
             metrics.update(
                 {
                     "epoch": epoch,
                     "train_loss": total_loss / max(total_examples, 1),
+                    "validation_loss": validation_loss,
                 }
             )
             history.write(json.dumps(metrics, ensure_ascii=False, sort_keys=True) + "\n")
