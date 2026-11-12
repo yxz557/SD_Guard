@@ -261,6 +261,24 @@ python -m guard_training.frozen_hidden_mlp.plot_loss_curves \
 
 画图是独立步骤，不会因画图环境问题影响已经完成的训练。
 
+### 6.1 从现有 offline dataset 构建 suite-only 子集
+
+如果要在不改变原 task-pair split 的前提下训练 Travel-only 分类头，
+直接过滤已经提取的 compact hidden-state dataset：
+
+```bash
+export TRAVEL_DATASET="$FEATURE_ROOT/offline_datasets/travel_only_trace_last_layer_final"
+
+python -m guard_training.frozen_hidden_mlp.filter_offline_dataset \
+  --input-dataset "$OFFLINE_DATASET" \
+  --output-dir "$TRAVEL_DATASET" \
+  --suite travel
+```
+
+该命令会筛选所有已存在的 split，包括辅助的
+`public_validation` 和 `public_test`；它不重新切分 task pair，不需要重新运行
+backbone prefill。输出目录必须尚不存在，以避免意外覆盖旧实验。
+
 ## 7. 导出工具步骤风险曲线
 
 ```bash
