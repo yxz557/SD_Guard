@@ -6,8 +6,10 @@ import unittest
 from pathlib import Path
 
 from guard_training.qwen3_trace_features.inspect_tool_step_coverage import (
+    anomaly_record,
     build_report,
     enrich_row,
+    inspect_raw_trace,
     load_feature_rows,
     load_offline_annotations,
 )
@@ -95,6 +97,51 @@ class ToolStepCoverageTest(unittest.TestCase):
             self.assertEqual(selected["excluded_feature_rows"], 2)
             self.assertEqual(selected["overall"]["eligible_call_and_result"]["samples"], 1)
             self.assertEqual(selected["by_offline_split"]["train"]["samples"], 2)
+
+    def test_raw_trace_errors_are_reported_in_anomaly_record(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+            path = Path(temporary) / "raw_trace.json"
+            raw = {
+                "provenance": {"run_error": None},
+                "trajectory": {
+                    "messages": [
+                        {
+                            "role": "tool",
+                            "tool_call_id": "call-1",
+                            "tool_call": {"function": "search_files"},
+                            "content": [{"type": "text", "content": ""}],
+                            "error": "ValueError: no files found",
+                        },
+                        {
+                            "role": "tool",
+                            "tool_call_id": "call-2",
+                            "tool_call": {"function": "list_files"},
+                            "content": [{"type": "text", "content": "file-1"}],
+                            "error": None,
+                        },
+                    ]
+                },
+            }
+            path.write_text(json.dumps(raw), encoding="utf-8")
+            diagnostics = inspect_raw_trace(path, max_error_chars=2000)
+            self.assertEqual(diagnostics["tool_message_count"], 2)
+            self.assertEqual(diagnostics["structured_tool_error_count"], 1)
+            self.assertTrue(diagnostics["has_structured_tool_error"])
+            self.assertFalse(diagnostics["all_tool_results_structured_errors"])
+            self.assertFalse(diagnostics["last_tool_result_structured_error"])
+
+            row = enrich_row(
+                metadata_row("failed_then_recovered", 0, ["tool_call_end", "tool_result_end"]),
+                "local",
+            )
+            row.update(diagnostics)
+            record = anomaly_record(row)
+            self.assertIsNotNone(record)
+            assert record is not None
+            self.assertIn("structured_tool_error", record["diagnostic_flags"])
+            self.assertNotIn(
+                "all_tool_results_structured_errors", record["diagnostic_flags"]
+            )
 
 
 if __name__ == "__main__":
