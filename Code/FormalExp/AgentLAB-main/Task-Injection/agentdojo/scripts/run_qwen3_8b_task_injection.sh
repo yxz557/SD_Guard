@@ -31,6 +31,7 @@ LOG_ROOT_ARG=""
 RESULT_ROOT_ARG=""
 MANIFEST_PATH=""
 RUN_ID_ARG=""
+ROLLOUT_ID_ARG=""
 INCLUDE_CLEAN=false
 SKIP_EXPORT=false
 FORCE_RERUN=false
@@ -56,6 +57,7 @@ Reproducibility and storage:
   --manifest PATH     Sample manifest path. Numeric --pairs only. The default is
                       result-root/manifests/pairs_<N>_seed_<seed>.json.
   --run-id ID         Stable provenance id used by frozen traces.
+  --rollout-id ID     Repeated-rollout identity; makes sample ids unique across trials.
   --run-tag TAG       Changes default paths and the default run id.
   --workers N         Concurrent independent benchmark jobs (default: 1).
 
@@ -145,6 +147,11 @@ while (( $# > 0 )); do
     --run-id)
       require_value "$1" "$#"
       RUN_ID_ARG=$2
+      shift 2
+      ;;
+    --rollout-id)
+      require_value "$1" "$#"
+      ROLLOUT_ID_ARG=$2
       shift 2
       ;;
     --run-tag)
@@ -395,12 +402,33 @@ suite_is_selected() {
 }
 
 ensure_campaign_config() {
-  "${PYTHON_BIN}" - "${CAMPAIGN_CONFIG}" "${BENCHMARK_VERSION}" "${TARGET_MODEL_ID}" "${SAMPLE_SEED}" "${RUN_ID}" <<'PY'
+  "${PYTHON_BIN}" - \
+    "${CAMPAIGN_CONFIG}" \
+    "${BENCHMARK_VERSION}" \
+    "${TARGET_MODEL_ID}" \
+    "${SAMPLE_SEED}" \
+    "${RUN_ID}" \
+    "${ROLLOUT_ID_ARG}" \
+    "${AGENTDOJO_LLM_TEMPERATURE:-}" \
+    "${AGENTDOJO_LLM_TOP_P:-}" \
+    "${AGENTDOJO_LLM_TOP_K:-}" \
+    "${AGENTDOJO_LLM_MAX_TOKENS:-}" \
+    "${AGENTDOJO_GENERATION_SEED:-}" \
+    "${AGENTDOJO_ENABLE_THINKING:-}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+generation_config = {
+    key: value
+    for key, value in zip(
+        ("temperature", "top_p", "top_k", "max_tokens", "generation_seed", "enable_thinking"),
+        sys.argv[7:13],
+        strict=True,
+    )
+    if value != ""
+}
 expected = {
     "schema_version": "sd_guard.task_injection_campaign.v1",
     "pipeline_model": "VLLM_PARSED",
@@ -409,6 +437,14 @@ expected = {
     "sample_seed": int(sys.argv[4]),
     "run_id": sys.argv[5],
 }
+if sys.argv[6] or generation_config:
+    expected.update(
+        {
+            "schema_version": "sd_guard.task_injection_campaign.v2",
+            "rollout_id": sys.argv[6] or None,
+            "generation_config": generation_config,
+        }
+    )
 if path.exists():
     with path.open(encoding="utf-8") as file:
         actual = json.load(file)
@@ -511,6 +547,8 @@ echo "Concurrent jobs:      ${WORKERS}"
 echo "Intermediate logs:    ${LOG_ROOT}"
 echo "Result root:          ${RESULT_ROOT}"
 echo "Run id:               ${RUN_ID}"
+echo "Rollout id:           ${ROLLOUT_ID_ARG:-<none>}"
+echo "Generation config:    temperature=${AGENTDOJO_LLM_TEMPERATURE:-<server-default>} top_p=${AGENTDOJO_LLM_TOP_P:-<server-default>} top_k=${AGENTDOJO_LLM_TOP_K:-<server-default>} max_tokens=${AGENTDOJO_LLM_MAX_TOKENS:-<server-default>} seed=${AGENTDOJO_GENERATION_SEED:-<server-default>} thinking=${AGENTDOJO_ENABLE_THINKING:-<template-default>}"
 echo "Include clean:        ${INCLUDE_CLEAN}"
 echo "Force rerun:          ${FORCE_RERUN}"
 
@@ -562,13 +600,18 @@ wait_for_all_jobs
 
 if [[ "${SKIP_EXPORT}" == false ]]; then
   announce "Freezing all completed campaign trajectories"
-  "${PYTHON_BIN}" -m agentdojo.guard_eval.export_trace \
-    --input "${LOG_ROOT}" \
-    --output "${TRACE_ROOT}" \
-    --target-model-id "${TARGET_MODEL_ID}" \
-    --benchmark-version "${BENCHMARK_VERSION}" \
-    --run-id "${RUN_ID}" \
+  EXPORT_ARGS=(
+    --input "${LOG_ROOT}"
+    --output "${TRACE_ROOT}"
+    --target-model-id "${TARGET_MODEL_ID}"
+    --benchmark-version "${BENCHMARK_VERSION}"
+    --run-id "${RUN_ID}"
     --seed "${SAMPLE_SEED}"
+  )
+  if [[ -n "${ROLLOUT_ID_ARG}" ]]; then
+    EXPORT_ARGS+=(--rollout-id "${ROLLOUT_ID_ARG}")
+  fi
+  "${PYTHON_BIN}" -m agentdojo.guard_eval.export_trace "${EXPORT_ARGS[@]}"
 
   announce "Verifying frozen trajectory hashes"
   "${PYTHON_BIN}" -m agentdojo.guard_eval.verify --input "${TRACE_ROOT}"

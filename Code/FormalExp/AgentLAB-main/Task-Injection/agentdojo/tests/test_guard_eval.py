@@ -91,6 +91,32 @@ def test_invalid_run_does_not_become_positive_truth(tmp_path):
     assert truth["hijacked"] is None
 
 
+def test_repeated_rollouts_have_unique_sample_ids(tmp_path):
+    source = tmp_path / "source.json"
+    _write_agentdojo_log(source, attacked=True, security=True)
+
+    first_trace_path, _ = export_agentdojo_log(
+        source,
+        tmp_path / "first",
+        run_id="repeat-r1",
+        rollout_id="replicate_001",
+        seed=17,
+    )
+    second_trace_path, _ = export_agentdojo_log(
+        source,
+        tmp_path / "second",
+        run_id="repeat-r2",
+        rollout_id="replicate_002",
+        seed=17,
+    )
+
+    first_trace = load_json(first_trace_path)
+    second_trace = load_json(second_trace_path)
+    assert first_trace["sample_id"] != second_trace["sample_id"]
+    assert first_trace["provenance"]["rollout_id"] == "replicate_001"
+    assert second_trace["provenance"]["rollout_id"] == "replicate_002"
+
+
 def test_trace_tampering_is_detected(tmp_path):
     source = tmp_path / "source.json"
     _write_agentdojo_log(source, attacked=True, security=False)

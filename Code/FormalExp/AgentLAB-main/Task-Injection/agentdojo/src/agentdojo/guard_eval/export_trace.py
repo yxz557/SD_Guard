@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,7 @@ def _build_sample_id(
     injection_task_id: str | None,
     attack_type: str | None,
     payload_sha256: str,
+    rollout_id: str | None = None,
 ) -> str:
     identity = {
         "dataset": "AgentLAB",
@@ -82,7 +84,32 @@ def _build_sample_id(
         "attack_type": attack_type,
         "payload_sha256": payload_sha256,
     }
+    if rollout_id is not None:
+        identity["rollout_id"] = rollout_id
     return f"agentlab-{sha256_json(identity)[:32]}"
+
+
+def _generation_config_from_environment() -> dict[str, Any]:
+    environment_fields = {
+        "temperature": "AGENTDOJO_LLM_TEMPERATURE",
+        "top_p": "AGENTDOJO_LLM_TOP_P",
+        "top_k": "AGENTDOJO_LLM_TOP_K",
+        "max_tokens": "AGENTDOJO_LLM_MAX_TOKENS",
+        "generation_seed": "AGENTDOJO_GENERATION_SEED",
+        "enable_thinking": "AGENTDOJO_ENABLE_THINKING",
+    }
+    config: dict[str, Any] = {}
+    for key, environment_name in environment_fields.items():
+        value = os.getenv(environment_name)
+        if value in (None, ""):
+            continue
+        if key in {"top_k", "max_tokens", "generation_seed"}:
+            config[key] = int(value)
+        elif key in {"temperature", "top_p"}:
+            config[key] = float(value)
+        else:
+            config[key] = value.strip().lower() in {"1", "true", "yes", "on"}
+    return config
 
 
 def export_agentdojo_log(
@@ -92,6 +119,7 @@ def export_agentdojo_log(
     target_model_id: str | None = None,
     benchmark_version_fallback: str = "v1.2.1",
     run_id: str = "baseline-r0",
+    rollout_id: str | None = None,
     seed: int | None = None,
 ) -> tuple[Path, Path]:
     source = load_json(log_path)
@@ -117,8 +145,24 @@ def export_agentdojo_log(
         injection_task_id=injection_task_id,
         attack_type=attack_type,
         payload_sha256=payload_sha256,
+        rollout_id=rollout_id,
     )
     source_log_sha256 = sha256_file(log_path)
+    provenance = {
+        "run_id": run_id,
+        "seed": seed,
+        "source_log_name": log_path.name,
+        "source_log_sha256": source_log_sha256,
+        "evaluation_timestamp": source.get("evaluation_timestamp"),
+        "agentdojo_package_version": source.get("agentdojo_package_version"),
+        "duration_seconds": source.get("duration"),
+        "run_error": source.get("error"),
+    }
+    if rollout_id is not None:
+        provenance["rollout_id"] = rollout_id
+    generation_config = _generation_config_from_environment()
+    if generation_config:
+        provenance["generation_config"] = generation_config
 
     raw_trace = {
         "schema_version": RAW_TRACE_SCHEMA_VERSION,
@@ -143,16 +187,7 @@ def export_agentdojo_log(
             "messages": messages,
             "tool_trace": _extract_tool_trace(messages),
         },
-        "provenance": {
-            "run_id": run_id,
-            "seed": seed,
-            "source_log_name": log_path.name,
-            "source_log_sha256": source_log_sha256,
-            "evaluation_timestamp": source.get("evaluation_timestamp"),
-            "agentdojo_package_version": source.get("agentdojo_package_version"),
-            "duration_seconds": source.get("duration"),
-            "run_error": source.get("error"),
-        },
+        "provenance": provenance,
     }
 
     sample_dir = output_root / sample_id
@@ -196,6 +231,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--target-model-id", default=None)
     parser.add_argument("--benchmark-version", default="v1.2.1")
     parser.add_argument("--run-id", default="baseline-r0")
+    parser.add_argument(
+        "--rollout-id",
+        default=None,
+        help="Stable repeated-rollout id. When set, it is included in the sample identity.",
+    )
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
@@ -220,6 +260,7 @@ def main() -> None:
             target_model_id=args.target_model_id,
             benchmark_version_fallback=args.benchmark_version,
             run_id=args.run_id,
+            rollout_id=args.rollout_id,
             seed=args.seed,
         )
         exported += 1

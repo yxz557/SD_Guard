@@ -31,6 +31,7 @@ from agentdojo.types import (
     ChatToolResultMessage,
     ChatUserMessage,
     MessageContentBlock,
+    ThinkingContentBlock,
     get_text_content_as_str,
     text_content_block_from_string,
 )
@@ -51,6 +52,38 @@ def _request_delay_seconds() -> float:
             f"got {raw_value!r}"
         )
     return delay
+
+
+def _optional_float_env(name: str, fallback: float | None = None) -> float | None:
+    raw_value = os.getenv(name)
+    if raw_value in (None, ""):
+        return fallback
+    try:
+        return float(raw_value)
+    except ValueError as error:
+        raise ValueError(f"{name} must be a number, got {raw_value!r}") from error
+
+
+def _optional_int_env(name: str) -> int | None:
+    raw_value = os.getenv(name)
+    if raw_value in (None, ""):
+        return None
+    try:
+        return int(raw_value)
+    except ValueError as error:
+        raise ValueError(f"{name} must be an integer, got {raw_value!r}") from error
+
+
+def _optional_bool_env(name: str) -> bool | None:
+    raw_value = os.getenv(name)
+    if raw_value in (None, ""):
+        return None
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean, got {raw_value!r}")
 
 
 def _tool_call_to_openai(tool_call: FunctionCall) -> ChatCompletionMessageToolCallParam:
@@ -90,7 +123,23 @@ def _content_blocks_to_openai_content_blocks(
 ) -> list[ChatCompletionContentPartTextParam] | None:
     if message["content"] is None:
         return None
-    return [ChatCompletionContentPartTextParam(type="text", text=el["content"] or "") for el in message["content"]]
+    text_blocks = [
+        ChatCompletionContentPartTextParam(type="text", text=el["content"] or "")
+        for el in message["content"]
+        if el["type"] == "text"
+    ]
+    return text_blocks or None
+
+
+def _assistant_reasoning_content(message: ChatAssistantMessage) -> str | None:
+    if message["content"] is None:
+        return None
+    reasoning_blocks = [
+        block["content"]
+        for block in message["content"]
+        if block["type"] in {"thinking", "redacted_thinking"} and block.get("content")
+    ]
+    return "\n".join(reasoning_blocks) or None
 
 
 def _message_to_openai(message: ChatMessage, model_name: str) -> ChatCompletionMessageParam:
@@ -104,17 +153,21 @@ def _message_to_openai(message: ChatMessage, model_name: str) -> ChatCompletionM
                 role="user", content=_content_blocks_to_openai_content_blocks(message)
             )
         case "assistant":
+            assistant_message: ChatCompletionAssistantMessageParam = {
+                "role": "assistant",
+                "content": _content_blocks_to_openai_content_blocks(message),
+            }
             if message["tool_calls"] is not None and len(message["tool_calls"]) > 0:
-                tool_calls = [_tool_call_to_openai(tool_call) for tool_call in message["tool_calls"]]
-                return ChatCompletionAssistantMessageParam(
-                    role="assistant",
-                    content=_content_blocks_to_openai_content_blocks(message),
-                    tool_calls=tool_calls,
-                )
-            return ChatCompletionAssistantMessageParam(
-                role="assistant",
-                content=_content_blocks_to_openai_content_blocks(message),
-            )
+                assistant_message["tool_calls"] = [
+                    _tool_call_to_openai(tool_call) for tool_call in message["tool_calls"]
+                ]
+            reasoning_content = _assistant_reasoning_content(message)
+            if reasoning_content is not None:
+                # vLLM reasoning parsers expose this OpenAI-compatible extension.
+                # Keeping it separate prevents the hidden reasoning from being
+                # flattened into the visible assistant response on the next turn.
+                assistant_message["reasoning_content"] = reasoning_content  # type: ignore[typeddict-unknown-key]
+            return assistant_message
         case "tool":
             if message["tool_call_id"] is None:
                 raise ValueError("`tool_call_id` should be specified for OpenAI.")
@@ -136,10 +189,28 @@ def _openai_to_tool_call(tool_call: ChatCompletionMessageToolCall) -> FunctionCa
     )
 
 
+def _response_reasoning_content(message: ChatCompletionMessage) -> str | None:
+    for attribute in ("reasoning_content", "reasoning"):
+        value = getattr(message, attribute, None)
+        if isinstance(value, str) and value:
+            return value
+    model_extra = getattr(message, "model_extra", None)
+    if isinstance(model_extra, dict):
+        for key in ("reasoning_content", "reasoning"):
+            value = model_extra.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return None
+
+
 def _assistant_message_to_content(message: ChatCompletionMessage) -> list[MessageContentBlock] | None:
-    if message.content is None:
-        return None
-    return [text_content_block_from_string(message.content)]
+    content: list[MessageContentBlock] = []
+    reasoning_content = _response_reasoning_content(message)
+    if reasoning_content is not None:
+        content.append(ThinkingContentBlock(type="thinking", content=reasoning_content, id=None))
+    if message.content is not None:
+        content.append(text_content_block_from_string(message.content))
+    return content or None
 
 
 def _openai_to_assistant_message(message: ChatCompletionMessage) -> ChatAssistantMessage:
@@ -172,8 +243,28 @@ def chat_completion_request(
     tools: Sequence[ChatCompletionToolParam],
     reasoning_effort: ChatCompletionReasoningEffort | None,
     temperature: float | None = 0.0,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    max_tokens: int | None = None,
+    seed: int | None = None,
+    enable_thinking: bool | None = None,
     cot: bool = False,
 ):
+    extra_body: dict[str, object] = {}
+    if top_k is not None:
+        extra_body["top_k"] = top_k
+    if enable_thinking is not None:
+        extra_body["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
+
+    request_kwargs = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature if temperature is not None else NOT_GIVEN,
+        "top_p": top_p if top_p is not None else NOT_GIVEN,
+        "max_tokens": max_tokens if max_tokens is not None else NOT_GIVEN,
+        "seed": seed if seed is not None else NOT_GIVEN,
+        "extra_body": extra_body or None,
+    }
     # create an extra api call for cot reasoning and print the response without interrupting the main api call
     # make the available tools to be text
     # add prompt to let the model generate thinking process for tool calling
@@ -210,20 +301,16 @@ def chat_completion_request(
 
         # 这次调用不传 tools，只是让模型在看到工具列表文本的前提下输出思维链
         cot_completion = client.chat.completions.create(
-            model=model,
-            messages=cot_messages,
-            temperature=temperature or NOT_GIVEN,
+            **{**request_kwargs, "messages": cot_messages},
             # reasoning_effort=reasoning_effort or NOT_GIVEN,
         )
     # print("[TOOL COT]", getattr(cot_completion.choices[0].message, "content", "No content"))
         return cot_completion
     else:
         return client.chat.completions.create(
-            model=model,
-            messages=messages,
+            **request_kwargs,
             tools=tools or NOT_GIVEN,
             tool_choice="auto" if tools else NOT_GIVEN,
-            temperature=temperature or NOT_GIVEN,
             reasoning_effort=reasoning_effort or NOT_GIVEN,
         )
 
@@ -264,7 +351,17 @@ class OpenAILLM(BasePipelineElement):
         if request_delay > 0:
             time.sleep(request_delay)
         completion = chat_completion_request(
-            self.client, self.model, openai_messages, openai_tools, self.reasoning_effort, self.temperature
+            self.client,
+            self.model,
+            openai_messages,
+            openai_tools,
+            self.reasoning_effort,
+            _optional_float_env("AGENTDOJO_LLM_TEMPERATURE", self.temperature),
+            top_p=_optional_float_env("AGENTDOJO_LLM_TOP_P"),
+            top_k=_optional_int_env("AGENTDOJO_LLM_TOP_K"),
+            max_tokens=_optional_int_env("AGENTDOJO_LLM_MAX_TOKENS"),
+            seed=_optional_int_env("AGENTDOJO_GENERATION_SEED"),
+            enable_thinking=_optional_bool_env("AGENTDOJO_ENABLE_THINKING"),
         )
         output = _openai_to_assistant_message(completion.choices[0].message)
         # cot_completion = chat_completion_request(
