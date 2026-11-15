@@ -20,8 +20,12 @@ guard_training/
 ├── common/                  # trace、序列化、特征分片、指标和划分工具
 ├── qwen3_trace_features/    # Qwen3-4B 特征提取
 ├── frozen_hidden_mlp/       # 划分、训练、测试、步骤风险导出
+├── tool_step_mean_pool/     # call/result mean pooling 与组合消融
 └── tests/                   # 不依赖模型权重的单元测试
 ```
+
+工具调用/返回步骤的 C0、T0、RC、RT、RCT 实验及完整运行命令见
+[tool_step_mean_pool/README.md](tool_step_mean_pool/README.md)。
 
 大体积特征应写入 `results/formal/guard_training/`，不要提交到源码目录。
 
