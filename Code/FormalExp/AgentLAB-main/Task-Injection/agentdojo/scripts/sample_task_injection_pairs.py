@@ -104,7 +104,6 @@ def _validate_manifest(
         "benchmark_version": benchmark_version,
         "pairs_per_suite": pairs_per_suite,
         "seed": seed,
-        "suite_names": list(suites),
     }
     for key, expected in expected_metadata.items():
         if manifest.get(key) != expected:
@@ -112,6 +111,17 @@ def _validate_manifest(
                 f"Existing manifest has incompatible {key}: "
                 f"expected {expected!r}, got {manifest.get(key)!r}"
             )
+
+    manifest_suite_names = manifest.get("suite_names")
+    if (
+        not isinstance(manifest_suite_names, list)
+        or len(manifest_suite_names) != len(set(manifest_suite_names))
+        or set(manifest_suite_names) != set(suites)
+    ):
+        raise ValueError(
+            "Existing manifest has incompatible suite_names: "
+            f"expected the suites {list(suites)!r}, got {manifest_suite_names!r}"
+        )
 
     suite_records = manifest.get("suites")
     if not isinstance(suite_records, dict) or set(suite_records) != set(suites):

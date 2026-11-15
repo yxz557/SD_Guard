@@ -18,7 +18,9 @@ ATTACKS = {
     "important_instructions",
     "tool_knowledge",
 }
-SUITES = ("workspace", "slack", "travel", "banking")
+# Keep the exact insertion order returned by AgentDojo v1.2.1 get_suites().
+# sample_task_injection_pairs.py treats suite_names as an ordered compatibility field.
+SUITES = ("workspace", "travel", "banking", "slack")
 DEFAULT_EXCLUDED_USER_TASKS = {
     "workspace": {
         "user_task_13": "utility 6/70; repeated file-search failures",
