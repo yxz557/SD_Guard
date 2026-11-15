@@ -163,6 +163,23 @@ def aggregate_groups(reports: list[dict[str, Any]], key: str) -> dict[str, Any]:
     return output
 
 
+def aggregate_operating_points(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    if not reports or not all(isinstance(report.get("operating_points"), dict) for report in reports):
+        return {}
+    names = sorted(
+        set.intersection(*(set(report["operating_points"]) for report in reports))
+    )
+    return {
+        name: aggregate_metric_views(
+            [
+                normalized_metrics(report["operating_points"][name]["metrics"])
+                for report in reports
+            ]
+        )
+        for name in names
+    }
+
+
 def count_mlp_parameters(config: dict[str, Any]) -> int | None:
     if config.get("head") != "mlp":
         return None
@@ -221,9 +238,11 @@ def load_experiment(name: str, runs_root: Path) -> tuple[dict[str, Any], set[str
             dataset_config = Path(offline_dataset) / "dataset_config.json"
             if dataset_config.is_file():
                 dataset_hashes.add(file_sha256(dataset_config))
-        parameter_count = count_mlp_parameters(config)
+        parameter_count = config.get("model_parameters")
+        if parameter_count is None:
+            parameter_count = count_mlp_parameters(config)
         if parameter_count is not None:
-            parameter_counts.add(parameter_count)
+            parameter_counts.add(int(parameter_count))
         prediction_path = metrics_path.with_name("test_predictions.jsonl")
         ids, counts = load_predictions(prediction_path)
         if ids:
@@ -254,6 +273,7 @@ def load_experiment(name: str, runs_root: Path) -> tuple[dict[str, Any], set[str
         "overall": aggregate_metric_views(
             [normalized_metrics(value["overall"]) for value in reports]
         ),
+        "operating_points": aggregate_operating_points(reports),
         "by_suite": aggregate_groups(reports, "by_suite"),
         "by_attack": aggregate_groups(reports, "by_attack"),
     }
@@ -340,6 +360,36 @@ def build_markdown(report: dict[str, Any]) -> str:
             overall_rows,
         )
     )
+
+    operating_names = sorted(
+        set().union(*(set(experiment.get("operating_points", {})) for experiment in experiments))
+    )
+    if operating_names:
+        lines.extend(["", "## Validation选择的固定工作点", ""])
+        operating_metrics = (
+            "accuracy",
+            "positive_precision",
+            "positive_recall",
+            "false_positive_rate",
+            "false_negative_rate",
+        )
+        rows: list[list[str]] = []
+        for operating_name in operating_names:
+            for experiment in experiments:
+                values = experiment.get("operating_points", {}).get(operating_name, {})
+                if not values:
+                    continue
+                rows.append(
+                    [operating_name, experiment["name"]]
+                    + [fmt_metric(values.get(metric)) for metric in operating_metrics]
+                )
+        lines.extend(
+            markdown_table(
+                ["工作点", "实验"]
+                + [DISPLAY_NAMES[metric] for metric in operating_metrics],
+                rows,
+            )
+        )
 
     for group_key, title in (("by_suite", "按 suite"), ("by_attack", "按 attack")):
         lines.extend(["", f"## {title}", ""])
