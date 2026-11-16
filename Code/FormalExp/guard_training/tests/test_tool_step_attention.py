@@ -115,6 +115,29 @@ class ToolStepAttentionTest(unittest.TestCase):
         self.assertEqual(aligned.result_round_group.tolist(), [0, 0])
         self.assertEqual(aligned.diagnostics["tool_pairs_exact_id"], 2)
 
+    def test_public_results_use_ordered_round_context_fallback(self) -> None:
+        steps = [
+            {"kind": "tool_call_end", "round_index": 0, "tool_call_id": None},
+            {"kind": "tool_call_end", "round_index": 0, "tool_call_id": None},
+            {"kind": "assistant_decision_end", "round_index": 0},
+            {"kind": "tool_result_end", "round_index": None, "tool_call_id": None},
+            {"kind": "tool_result_end", "round_index": None, "tool_call_id": None},
+            {"kind": "tool_round_end", "round_index": None},
+        ]
+        vectors = torch.arange(12, dtype=torch.float32).reshape(6, 2)
+        aligned = align_individual_tools(steps, vectors, [0, 1], [3, 4])
+        self.assertEqual(aligned.result_to_call.tolist(), [0, 1])
+        torch.testing.assert_close(
+            aligned.result_round_context,
+            torch.stack([vectors[5], vectors[5]]),
+        )
+        self.assertEqual(aligned.result_round_context_mask.tolist(), [True, True])
+        self.assertEqual(aligned.result_round_group.tolist(), [5, 5])
+        self.assertEqual(
+            aligned.diagnostics["result_round_context_order_fallback"], 2
+        )
+        self.assertEqual(aligned.diagnostics["results_without_round_context"], 0)
+
     def test_individual_shared_attention_maps_each_result_to_its_call(self) -> None:
         torch.manual_seed(7)
         items = [

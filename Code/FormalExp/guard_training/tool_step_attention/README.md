@@ -27,7 +27,7 @@ rct_round_tool_shared
 - `*_independent`让result分支独立计算权重；
 - `*_shared`按`tool_call_id`把每个call的最终logit共享给对应result。
 
-个体配对优先使用`tool_call_id`，缺失时才按同轮function/顺序回退，并在`build_report.json`中记录次数。
+个体配对优先使用`tool_call_id`，缺失时才按同轮function/顺序回退，并在`build_report.json`中记录次数。公开trace的result经常缺少`round_index`；此时将一段连续的`tool_result_end`关联到紧随其后的`tool_round_end`，不会过滤样本或将其降级为无round attention。
 
 ## 0. 先运行Mean模型参数量消融
 
@@ -71,7 +71,7 @@ c0_large_h514 / t0_large_h514 / c0_large_h771
 export BASE_OFFLINE="$SD_ROOT/results/formal/guard_training/nothink_public_v1_2_1/offline_datasets/readout_last_layer_final"
 export LOCAL_FEATURE_ROOT="$SD_ROOT/results/formal/guard_training/qwen3_4b_task_injection_nothink_ctx40k_r1"
 export PUBLIC_FEATURE_ROOT="$SD_ROOT/results/formal/guard_training/qwen3_4b_agentdojo_public_v1_2_1_no_defense"
-export ATTN_DATASET="$SD_ROOT/results/formal/guard_training/nothink_public_v1_2_1/offline_datasets/tool_step_attention_v2_layer_final"
+export ATTN_DATASET="$SD_ROOT/results/formal/guard_training/nothink_public_v1_2_1/offline_datasets/tool_step_attention_v2_1_layer_final"
 
 python -m guard_training.tool_step_attention.build_offline_dataset \
   --input-dataset "$BASE_OFFLINE" \
@@ -115,7 +115,7 @@ python -m guard_training.tool_step_attention.run_experiments \
 
 ## 3. 新增四组个体工具Attention实验
 
-旧的v1离线数据没有`tool_call_id`映射和逐工具round context，因此必须先按上面的命令构建新的`tool_step_attention_v2_layer_final`目录。随后运行：
+旧的v1离线数据没有`tool_call_id`映射和逐工具round context；最初的v2构建器又没有覆盖公开trace中`round_index=None`的result。因此必须先按上面的命令构建修复后的`tool_step_attention_v2_1_layer_final`目录。随后运行：
 
 ```bash
 export ATTN_RUNS_V2="$SD_ROOT/results/formal/guard_training/nothink_public_v1_2_1/experiments/tool_step_qattn_v2_none_10seeds"

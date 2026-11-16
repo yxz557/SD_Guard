@@ -207,6 +207,7 @@ def align_individual_tools(
     diagnostics: Counter[str] = Counter()
     decision_by_round: dict[int, int] = {}
     result_round_by_round: dict[int, int] = {}
+    result_round_by_order: dict[int, int] = {}
     for step_index, step in enumerate(steps):
         round_index = _round_index(step)
         if round_index is None:
@@ -215,6 +216,26 @@ def align_individual_tools(
             decision_by_round[round_index] = step_index
         elif step.get("kind") == ROUND_KIND:
             result_round_by_round[round_index] = step_index
+
+    # Public AgentDojo traces may omit tool_call_id on tool messages. Their
+    # tool_result_end and tool_round_end boundaries are still serialized in
+    # order, but both carry round_index=None. Associate every contiguous result
+    # block with its immediately following round endpoint before considering a
+    # result unmatched.
+    pending_results: list[int] = []
+    for step_index, step in enumerate(steps):
+        kind = step.get("kind")
+        if kind == RESULT_KIND:
+            pending_results.append(step_index)
+        elif kind == ROUND_KIND:
+            for result_step_index in pending_results:
+                result_round_by_order[result_step_index] = step_index
+            pending_results.clear()
+        elif pending_results:
+            # A different boundary before tool_round_end means this is not a
+            # structurally complete result block; do not attach it to a later
+            # unrelated round.
+            pending_results.clear()
 
     call_id_to_position: dict[str, int] = {}
     calls_by_round: dict[int, list[int]] = defaultdict(list)
@@ -243,7 +264,7 @@ def align_individual_tools(
             continue
         call_round_context[call_position] = step_vectors[context_index]
         call_round_context_mask[call_position] = True
-        call_round_group[call_position] = int(round_index)
+        call_round_group[call_position] = int(context_index)
 
     result_round_context = step_vectors.new_zeros((len(result_indices), hidden_size))
     result_round_context_mask = torch.zeros(len(result_indices), dtype=torch.bool)
@@ -258,12 +279,18 @@ def align_individual_tools(
         context_index = (
             result_round_by_round.get(round_index) if round_index is not None else None
         )
+        if context_index is not None:
+            diagnostics["result_round_context_exact"] += 1
+        else:
+            context_index = result_round_by_order.get(step_index)
+            if context_index is not None:
+                diagnostics["result_round_context_order_fallback"] += 1
         if context_index is None:
             diagnostics["results_without_round_context"] += 1
         else:
             result_round_context[result_position] = step_vectors[context_index]
             result_round_context_mask[result_position] = True
-            result_round_group[result_position] = int(round_index)
+            result_round_group[result_position] = int(context_index)
 
         call_position: int | None = None
         match_method: str | None = None
@@ -600,7 +627,7 @@ def build_dataset(
             }
         write_jsonl(staging / "excluded_by_eligibility.jsonl", all_excluded)
         config = {
-            "schema_version": "sd_guard.tool_step_attention_dataset.v2",
+            "schema_version": "sd_guard.tool_step_attention_dataset.v2.1",
             "source_offline_dataset": str(input_dataset),
             "source_offline_dataset_config_sha256": file_sha256(
                 input_dataset / "dataset_config.json"
@@ -643,6 +670,10 @@ def build_dataset(
                     "score-only context; pooled values remain individual "
                     "tool_call_end/tool_result_end vectors"
                 ),
+                "result_round_context_fallback": (
+                    "contiguous tool_result_end block followed immediately by "
+                    "tool_round_end"
+                ),
             },
             "pairing_diagnostics": pairing_diagnostics,
             "splits": split_configs,
@@ -651,7 +682,7 @@ def build_dataset(
         write_json(
             staging / "build_report.json",
             {
-                "schema_version": "sd_guard.tool_step_attention_build.v2",
+                "schema_version": "sd_guard.tool_step_attention_build.v2.1",
                 "splits": split_report,
                 "pairing_diagnostics": pairing_diagnostics,
                 "excluded_samples": len(all_excluded),
