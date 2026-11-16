@@ -46,6 +46,26 @@ class SampleFeatures:
     decisions: torch.Tensor
     round_results: torch.Tensor
     round_result_mask: torch.Tensor
+    call_round_context: torch.Tensor
+    call_round_context_mask: torch.Tensor
+    call_round_group: torch.Tensor
+    result_round_context: torch.Tensor
+    result_round_context_mask: torch.Tensor
+    result_round_group: torch.Tensor
+    result_to_call: torch.Tensor
+
+
+@dataclass
+class IndividualToolAlignment:
+    call_round_context: torch.Tensor
+    call_round_context_mask: torch.Tensor
+    call_round_group: torch.Tensor
+    result_round_context: torch.Tensor
+    result_round_context_mask: torch.Tensor
+    result_round_group: torch.Tensor
+    result_to_call: torch.Tensor
+    tool_pairs: list[dict[str, Any]]
+    diagnostics: Counter[str]
 
 
 def parse_args() -> argparse.Namespace:
@@ -159,6 +179,165 @@ def pair_rounds(
     return decisions, round_results, result_mask, pairs, unpaired_results
 
 
+def _round_index(step: dict[str, Any]) -> int | None:
+    value = step.get("round_index")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def align_individual_tools(
+    steps: list[dict[str, Any]],
+    step_vectors: torch.Tensor,
+    call_indices: list[int],
+    result_indices: list[int],
+) -> IndividualToolAlignment:
+    """Align individual call/result endpoints without replacing their values.
+
+    Exact ``tool_call_id`` matching is preferred. Missing IDs fall back to an
+    unused call from the same round (and function when available), then to an
+    unused call in trace order. The round endpoint vectors are repeated only as
+    scoring contexts; the actual values remain tool_call_end/tool_result_end.
+    """
+
+    hidden_size = int(step_vectors.shape[1])
+    diagnostics: Counter[str] = Counter()
+    decision_by_round: dict[int, int] = {}
+    result_round_by_round: dict[int, int] = {}
+    for step_index, step in enumerate(steps):
+        round_index = _round_index(step)
+        if round_index is None:
+            continue
+        if step.get("kind") == DECISION_KIND:
+            decision_by_round[round_index] = step_index
+        elif step.get("kind") == ROUND_KIND:
+            result_round_by_round[round_index] = step_index
+
+    call_id_to_position: dict[str, int] = {}
+    calls_by_round: dict[int, list[int]] = defaultdict(list)
+    for call_position, step_index in enumerate(call_indices):
+        step = steps[step_index]
+        call_id = str(step.get("tool_call_id") or "")
+        if call_id:
+            if call_id in call_id_to_position:
+                diagnostics["duplicate_tool_call_ids"] += 1
+            else:
+                call_id_to_position[call_id] = call_position
+        round_index = _round_index(step)
+        if round_index is not None:
+            calls_by_round[round_index].append(call_position)
+
+    call_round_context = step_vectors.new_zeros((len(call_indices), hidden_size))
+    call_round_context_mask = torch.zeros(len(call_indices), dtype=torch.bool)
+    call_round_group = torch.full((len(call_indices),), -1, dtype=torch.int64)
+    for call_position, step_index in enumerate(call_indices):
+        round_index = _round_index(steps[step_index])
+        context_index = (
+            decision_by_round.get(round_index) if round_index is not None else None
+        )
+        if context_index is None:
+            diagnostics["calls_without_round_context"] += 1
+            continue
+        call_round_context[call_position] = step_vectors[context_index]
+        call_round_context_mask[call_position] = True
+        call_round_group[call_position] = int(round_index)
+
+    result_round_context = step_vectors.new_zeros((len(result_indices), hidden_size))
+    result_round_context_mask = torch.zeros(len(result_indices), dtype=torch.bool)
+    result_round_group = torch.full((len(result_indices),), -1, dtype=torch.int64)
+    result_to_call = torch.full((len(result_indices),), -1, dtype=torch.int64)
+    used_calls: set[int] = set()
+    tool_pairs: list[dict[str, Any]] = []
+
+    for result_position, step_index in enumerate(result_indices):
+        step = steps[step_index]
+        round_index = _round_index(step)
+        context_index = (
+            result_round_by_round.get(round_index) if round_index is not None else None
+        )
+        if context_index is None:
+            diagnostics["results_without_round_context"] += 1
+        else:
+            result_round_context[result_position] = step_vectors[context_index]
+            result_round_context_mask[result_position] = True
+            result_round_group[result_position] = int(round_index)
+
+        call_position: int | None = None
+        match_method: str | None = None
+        call_id = str(step.get("tool_call_id") or "")
+        if call_id and call_id in call_id_to_position:
+            call_position = call_id_to_position[call_id]
+            match_method = "tool_call_id"
+            diagnostics["tool_pairs_exact_id"] += 1
+
+        if call_position is None and round_index is not None:
+            candidates = [
+                value
+                for value in calls_by_round.get(round_index, [])
+                if value not in used_calls
+            ]
+            function = str(step.get("function") or "")
+            same_function = [
+                value
+                for value in candidates
+                if function
+                and str(steps[call_indices[value]].get("function") or "") == function
+            ]
+            if same_function:
+                call_position = same_function[0]
+                match_method = "round_function_fallback"
+                diagnostics["tool_pairs_round_function_fallback"] += 1
+            elif candidates:
+                call_position = candidates[0]
+                match_method = "round_order_fallback"
+                diagnostics["tool_pairs_round_order_fallback"] += 1
+
+        if call_position is None:
+            candidates = [
+                value for value in range(len(call_indices)) if value not in used_calls
+            ]
+            if candidates:
+                call_position = candidates[0]
+                match_method = "trace_order_fallback"
+                diagnostics["tool_pairs_trace_order_fallback"] += 1
+
+        if call_position is None:
+            diagnostics["unmatched_tool_results"] += 1
+        else:
+            result_to_call[result_position] = call_position
+            used_calls.add(call_position)
+
+        tool_pairs.append(
+            {
+                "result_position": result_position,
+                "result_step_index": step_index,
+                "result_message_index": step.get("message_index"),
+                "result_tool_call_id": step.get("tool_call_id"),
+                "round_index": round_index,
+                "call_position": call_position,
+                "call_step_index": (
+                    call_indices[call_position] if call_position is not None else None
+                ),
+                "match_method": match_method,
+            }
+        )
+
+    return IndividualToolAlignment(
+        call_round_context=call_round_context,
+        call_round_context_mask=call_round_context_mask,
+        call_round_group=call_round_group,
+        result_round_context=result_round_context,
+        result_round_context_mask=result_round_context_mask,
+        result_round_group=result_round_group,
+        result_to_call=result_to_call,
+        tool_pairs=tool_pairs,
+        diagnostics=diagnostics,
+    )
+
+
 def materialize_samples(
     selected: list[tuple[dict[str, Any], FeatureLocation]], layer: int
 ) -> tuple[list[SampleFeatures], dict[str, int]]:
@@ -203,6 +382,9 @@ def materialize_samples(
             decisions, round_results, round_mask, pairs, unpaired = pair_rounds(
                 steps, step_vectors
             )
+            individual = align_individual_tools(
+                steps, step_vectors, call_indices, result_indices
+            )
             if decisions.shape[0] == 0:
                 raise ValueError(
                     f"Eligible sample has no assistant_decision_end: {offline_row['sample_id']}"
@@ -211,6 +393,13 @@ def materialize_samples(
                 diagnostics["samples_without_paired_round_result"] += 1
             diagnostics["unpaired_tool_round_end"] += unpaired
             diagnostics["unmatched_decision_rounds"] += int((~round_mask).sum().item())
+            diagnostics.update(individual.diagnostics)
+            if not bool((individual.result_to_call >= 0).any()):
+                diagnostics["samples_without_any_tool_pair"] += 1
+            if not bool(individual.call_round_context_mask.any()):
+                diagnostics["samples_without_any_call_round_context"] += 1
+            if not bool(individual.result_round_context_mask.any()):
+                diagnostics["samples_without_any_result_round_context"] += 1
 
             enriched = dict(offline_row)
             enriched.update(
@@ -222,8 +411,18 @@ def materialize_samples(
                         "paired_tool_rounds": int(round_mask.sum().item()),
                         "unmatched_decisions": int((~round_mask).sum().item()),
                         "unpaired_tool_round_ends": unpaired,
+                        "matched_individual_results": int(
+                            (individual.result_to_call >= 0).sum().item()
+                        ),
+                        "calls_with_round_context": int(
+                            individual.call_round_context_mask.sum().item()
+                        ),
+                        "results_with_round_context": int(
+                            individual.result_round_context_mask.sum().item()
+                        ),
                     },
                     "round_pairs": pairs,
+                    "individual_tool_pairs": individual.tool_pairs,
                 }
             )
             output[output_index] = SampleFeatures(
@@ -237,6 +436,13 @@ def materialize_samples(
                 decisions=decisions,
                 round_results=round_results,
                 round_result_mask=round_mask,
+                call_round_context=individual.call_round_context,
+                call_round_context_mask=individual.call_round_context_mask,
+                call_round_group=individual.call_round_group,
+                result_round_context=individual.result_round_context,
+                result_round_context_mask=individual.result_round_context_mask,
+                result_round_group=individual.result_round_group,
+                result_to_call=individual.result_to_call,
             )
 
     if any(sample is None for sample in output):
@@ -274,6 +480,29 @@ def save_split(
             [sample.round_result_mask for sample in samples], dim=0
         ),
         "round_offsets": make_offsets([sample.decisions for sample in samples]),
+        "call_round_context": concatenate_sequences(
+            [sample.call_round_context for sample in samples], hidden_size, target_dtype
+        ),
+        "call_round_context_mask": torch.cat(
+            [sample.call_round_context_mask for sample in samples], dim=0
+        ),
+        "call_round_group": torch.cat(
+            [sample.call_round_group for sample in samples], dim=0
+        ),
+        "result_round_context": concatenate_sequences(
+            [sample.result_round_context for sample in samples],
+            hidden_size,
+            target_dtype,
+        ),
+        "result_round_context_mask": torch.cat(
+            [sample.result_round_context_mask for sample in samples], dim=0
+        ),
+        "result_round_group": torch.cat(
+            [sample.result_round_group for sample in samples], dim=0
+        ),
+        "result_to_call": torch.cat(
+            [sample.result_to_call for sample in samples], dim=0
+        ),
     }
     tensor_path = output_dir / f"{split}.safetensors"
     metadata_path = output_dir / f"{split}.metadata.jsonl"
@@ -291,6 +520,15 @@ def save_split(
         "tool_results": int(tensors["result_hidden"].shape[0]),
         "assistant_decisions": int(tensors["decision_hidden"].shape[0]),
         "paired_round_results": int(tensors["round_result_mask"].sum().item()),
+        "matched_individual_results": int(
+            (tensors["result_to_call"] >= 0).sum().item()
+        ),
+        "calls_with_round_context": int(
+            tensors["call_round_context_mask"].sum().item()
+        ),
+        "results_with_round_context": int(
+            tensors["result_round_context_mask"].sum().item()
+        ),
         "tensor_file": tensor_path.name,
         "tensor_bytes": tensor_path.stat().st_size,
         "tensor_sha256": file_sha256(tensor_path),
@@ -362,7 +600,7 @@ def build_dataset(
             }
         write_jsonl(staging / "excluded_by_eligibility.jsonl", all_excluded)
         config = {
-            "schema_version": "sd_guard.tool_step_attention_dataset.v1",
+            "schema_version": "sd_guard.tool_step_attention_dataset.v2",
             "source_offline_dataset": str(input_dataset),
             "source_offline_dataset_config_sha256": file_sha256(
                 input_dataset / "dataset_config.json"
@@ -379,11 +617,32 @@ def build_dataset(
                 "results": RESULT_KIND,
                 "decisions": DECISION_KIND,
                 "round_results": ROUND_KIND,
+                "call_round_context": (
+                    "assistant_decision_end repeated for each call in the round"
+                ),
+                "result_round_context": (
+                    "tool_round_end repeated for each result in the round"
+                ),
+                "result_to_call": "per-result local call position",
+                "call_round_group": "per-call local round_index",
+                "result_round_group": "per-result local round_index",
             },
             "round_pairing": {
                 "primary_key": "round_index",
                 "fallback": "latest preceding unmatched assistant_decision_end",
                 "unmatched_decision_result": "zero vector plus false result mask",
+            },
+            "individual_tool_pairing": {
+                "primary_key": "tool_call_id",
+                "fallbacks": [
+                    "same round and function",
+                    "same round in trace order",
+                    "global trace order",
+                ],
+                "round_context_role": (
+                    "score-only context; pooled values remain individual "
+                    "tool_call_end/tool_result_end vectors"
+                ),
             },
             "pairing_diagnostics": pairing_diagnostics,
             "splits": split_configs,
@@ -392,7 +651,7 @@ def build_dataset(
         write_json(
             staging / "build_report.json",
             {
-                "schema_version": "sd_guard.tool_step_attention_build.v1",
+                "schema_version": "sd_guard.tool_step_attention_build.v2",
                 "splits": split_report,
                 "pairing_diagnostics": pairing_diagnostics,
                 "excluded_samples": len(all_excluded),

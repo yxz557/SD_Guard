@@ -4,9 +4,15 @@ import unittest
 
 import torch
 
-from guard_training.tool_step_attention.build_offline_dataset import pair_rounds
+from guard_training.tool_step_attention.build_offline_dataset import (
+    align_individual_tools,
+    pair_rounds,
+)
 from guard_training.tool_step_attention.dataset import collate_attention
-from guard_training.tool_step_attention.model import ToolStepAttentionClassifier
+from guard_training.tool_step_attention.model import (
+    ToolStepAttentionClassifier,
+    hierarchical_logits,
+)
 from guard_training.tool_step_mean_pool.run_parameter_ablation import parameter_count
 
 
@@ -82,6 +88,159 @@ class ToolStepAttentionTest(unittest.TestCase):
             attention["result_weights"].sum(dim=1), torch.ones(2)
         )
         self.assertEqual(float(attention["result_weights"][0, 1]), 0.0)
+
+    def test_individual_tool_alignment_uses_ids_and_round_contexts(self) -> None:
+        steps = [
+            {"kind": "tool_call_end", "round_index": 0, "tool_call_id": "c1"},
+            {"kind": "tool_call_end", "round_index": 0, "tool_call_id": "c2"},
+            {"kind": "assistant_decision_end", "round_index": 0},
+            {"kind": "tool_result_end", "round_index": 0, "tool_call_id": "c2"},
+            {"kind": "tool_result_end", "round_index": 0, "tool_call_id": "c1"},
+            {"kind": "tool_round_end", "round_index": 0},
+        ]
+        vectors = torch.arange(12, dtype=torch.float32).reshape(6, 2)
+        aligned = align_individual_tools(steps, vectors, [0, 1], [3, 4])
+        self.assertEqual(aligned.result_to_call.tolist(), [1, 0])
+        torch.testing.assert_close(
+            aligned.call_round_context,
+            torch.stack([vectors[2], vectors[2]]),
+        )
+        torch.testing.assert_close(
+            aligned.result_round_context,
+            torch.stack([vectors[5], vectors[5]]),
+        )
+        self.assertEqual(aligned.call_round_context_mask.tolist(), [True, True])
+        self.assertEqual(aligned.result_round_context_mask.tolist(), [True, True])
+        self.assertEqual(aligned.call_round_group.tolist(), [0, 0])
+        self.assertEqual(aligned.result_round_group.tolist(), [0, 0])
+        self.assertEqual(aligned.diagnostics["tool_pairs_exact_id"], 2)
+
+    def test_individual_shared_attention_maps_each_result_to_its_call(self) -> None:
+        torch.manual_seed(7)
+        items = [
+            {
+                "index": 0,
+                "readout": torch.tensor([0.1, 0.2, 0.3, 0.4]),
+                "label": torch.tensor(1),
+                "calls": torch.tensor(
+                    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]
+                ),
+                "results": torch.tensor(
+                    [[0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+                ),
+                "result_to_call": torch.tensor([1, 0]),
+            }
+        ]
+        batch = collate_attention(items, "rct_tool_shared")
+        model = ToolStepAttentionClassifier(
+            hidden_size=4,
+            variant="rct_tool_shared",
+            attention_dim=3,
+            head_hidden_dim=5,
+            dropout=0.0,
+            attention_dropout=0.0,
+        )
+        logits, attention = model(batch, return_attention=True)
+        self.assertEqual(tuple(logits.shape), (1, 2))
+        torch.testing.assert_close(
+            attention["call_weights"].sum(dim=1), torch.ones(1)
+        )
+        torch.testing.assert_close(
+            attention["result_weights"].sum(dim=1), torch.ones(1)
+        )
+        torch.testing.assert_close(
+            attention["result_weights"][0],
+            attention["call_weights"][0].flip(0),
+        )
+        independent_batch = collate_attention(items, "rct_tool_independent")
+        independent_model = ToolStepAttentionClassifier(
+            hidden_size=4,
+            variant="rct_tool_independent",
+            attention_dim=3,
+            head_hidden_dim=5,
+            dropout=0.0,
+            attention_dropout=0.0,
+        )
+        independent_logits, independent_attention = independent_model(
+            independent_batch, return_attention=True
+        )
+        self.assertEqual(tuple(independent_logits.shape), (1, 2))
+        torch.testing.assert_close(
+            independent_attention["result_weights"].sum(dim=1), torch.ones(1)
+        )
+
+    def test_round_tool_attention_keeps_tool_specific_weights(self) -> None:
+        torch.manual_seed(11)
+        shared_round = torch.tensor(
+            [[0.4, 0.3, 0.2, 0.1], [0.4, 0.3, 0.2, 0.1]]
+        )
+        items = [
+            {
+                "index": 0,
+                "readout": torch.tensor([0.1, 0.2, 0.3, 0.4]),
+                "label": torch.tensor(1),
+                "calls": torch.tensor(
+                    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]
+                ),
+                "results": torch.tensor(
+                    [[0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+                ),
+                "result_to_call": torch.tensor([0, 1]),
+                "call_round_context": shared_round,
+                "call_round_context_mask": torch.tensor([True, True]),
+                "call_round_group": torch.tensor([0, 0]),
+                "result_round_context": shared_round,
+                "result_round_context_mask": torch.tensor([True, True]),
+                "result_round_group": torch.tensor([0, 0]),
+            }
+        ]
+        batch = collate_attention(items, "rct_round_tool_independent")
+        model = ToolStepAttentionClassifier(
+            hidden_size=4,
+            variant="rct_round_tool_independent",
+            attention_dim=3,
+            head_hidden_dim=5,
+            dropout=0.0,
+            attention_dropout=0.0,
+        )
+        _, attention = model(batch, return_attention=True)
+        torch.testing.assert_close(
+            attention["call_weights"].sum(dim=1), torch.ones(1)
+        )
+        self.assertGreater(
+            abs(
+                float(attention["call_weights"][0, 0])
+                - float(attention["call_weights"][0, 1])
+            ),
+            1e-6,
+        )
+        shared_batch = collate_attention(items, "rct_round_tool_shared")
+        shared_model = ToolStepAttentionClassifier(
+            hidden_size=4,
+            variant="rct_round_tool_shared",
+            attention_dim=3,
+            head_hidden_dim=5,
+            dropout=0.0,
+            attention_dropout=0.0,
+        )
+        shared_logits, shared_attention = shared_model(
+            shared_batch, return_attention=True
+        )
+        self.assertEqual(tuple(shared_logits.shape), (1, 2))
+        torch.testing.assert_close(
+            shared_attention["result_weights"].sum(dim=1), torch.ones(1)
+        )
+
+    def test_hierarchical_round_weights_do_not_favor_more_tools(self) -> None:
+        tool_logits = torch.zeros((1, 3))
+        round_logits = torch.zeros((1, 3))
+        groups = torch.tensor([[0, 0, 1]])
+        mask = torch.tensor([[True, True, True]])
+        combined = hierarchical_logits(tool_logits, round_logits, groups, mask)
+        weights = torch.softmax(combined, dim=1)
+        torch.testing.assert_close(
+            weights, torch.tensor([[0.25, 0.25, 0.50]])
+        )
 
 
 if __name__ == "__main__":

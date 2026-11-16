@@ -18,10 +18,22 @@ VARIANTS = (
     "rt_qattn",
     "rct_independent",
     "rct_shared",
+    "rct_tool_independent",
+    "rct_tool_shared",
+    "rct_round_tool_independent",
+    "rct_round_tool_shared",
 )
 CALL_VARIANTS = {"c_qattn", "rc_qattn"}
 RESULT_VARIANTS = {"t_qattn", "rt_qattn"}
+# Legacy variants pool assistant_decision_end/tool_round_end themselves.
 ROUND_VARIANTS = {"rct_independent", "rct_shared"}
+TOOL_RCT_VARIANTS = {"rct_tool_independent", "rct_tool_shared"}
+ROUND_TOOL_RCT_VARIANTS = {
+    "rct_round_tool_independent",
+    "rct_round_tool_shared",
+}
+INDIVIDUAL_RCT_VARIANTS = TOOL_RCT_VARIANTS | ROUND_TOOL_RCT_VARIANTS
+SHARED_RESULT_VARIANTS = {"rct_tool_shared", "rct_round_tool_shared"}
 
 
 def load_config(dataset_dir: Path) -> dict[str, Any]:
@@ -42,13 +54,32 @@ def load_tensors(dataset_dir: Path, split: str, variant: str) -> dict[str, torch
         required = common | {"call_hidden", "call_offsets"}
     elif variant in RESULT_VARIANTS:
         required = common | {"result_hidden", "result_offsets"}
-    else:
+    elif variant in ROUND_VARIANTS:
         required = common | {
             "decision_hidden",
             "round_result_hidden",
             "round_result_mask",
             "round_offsets",
         }
+    elif variant in INDIVIDUAL_RCT_VARIANTS:
+        required = common | {
+            "call_hidden",
+            "call_offsets",
+            "result_hidden",
+            "result_offsets",
+            "result_to_call",
+        }
+        if variant in ROUND_TOOL_RCT_VARIANTS:
+            required |= {
+                "call_round_context",
+                "call_round_context_mask",
+                "call_round_group",
+                "result_round_context",
+                "result_round_context_mask",
+                "result_round_group",
+            }
+    else:
+        raise ValueError(f"Unknown attention variant: {variant}")
     with safe_open(str(path), framework="pt", device="cpu") as handle:
         missing = required - set(handle.keys())
         if missing:
@@ -93,7 +124,7 @@ class ToolStepAttentionDataset(Dataset):
             item["steps"] = self._slice(
                 self.tensors["result_hidden"], self.tensors["result_offsets"], index
             )
-        else:
+        elif self.variant in ROUND_VARIANTS:
             offsets = self.tensors["round_offsets"]
             item["decisions"] = self._slice(
                 self.tensors["decision_hidden"], offsets, index
@@ -104,6 +135,39 @@ class ToolStepAttentionDataset(Dataset):
             item["round_result_mask"] = self._slice(
                 self.tensors["round_result_mask"], offsets, index
             )
+        elif self.variant in INDIVIDUAL_RCT_VARIANTS:
+            call_offsets = self.tensors["call_offsets"]
+            result_offsets = self.tensors["result_offsets"]
+            item["calls"] = self._slice(
+                self.tensors["call_hidden"], call_offsets, index
+            )
+            item["results"] = self._slice(
+                self.tensors["result_hidden"], result_offsets, index
+            )
+            item["result_to_call"] = self._slice(
+                self.tensors["result_to_call"], result_offsets, index
+            )
+            if self.variant in ROUND_TOOL_RCT_VARIANTS:
+                item["call_round_context"] = self._slice(
+                    self.tensors["call_round_context"], call_offsets, index
+                )
+                item["call_round_context_mask"] = self._slice(
+                    self.tensors["call_round_context_mask"], call_offsets, index
+                )
+                item["call_round_group"] = self._slice(
+                    self.tensors["call_round_group"], call_offsets, index
+                )
+                item["result_round_context"] = self._slice(
+                    self.tensors["result_round_context"], result_offsets, index
+                )
+                item["result_round_context_mask"] = self._slice(
+                    self.tensors["result_round_context_mask"], result_offsets, index
+                )
+                item["result_round_group"] = self._slice(
+                    self.tensors["result_round_group"], result_offsets, index
+                )
+        else:
+            raise ValueError(f"Unknown attention variant: {self.variant}")
         return item
 
 
@@ -134,6 +198,18 @@ def pad_boolean_sequences(
     return output
 
 
+def pad_integer_sequences(
+    sequences: list[torch.Tensor], max_steps: int, fill_value: int = -1
+) -> torch.Tensor:
+    output = torch.full(
+        (len(sequences), max_steps), fill_value, dtype=torch.int64
+    )
+    for index, sequence in enumerate(sequences):
+        length = int(sequence.numel())
+        output[index, :length] = sequence.to(torch.int64)
+    return output
+
+
 def collate_attention(items: list[dict[str, Any]], variant: str) -> dict[str, torch.Tensor]:
     batch: dict[str, torch.Tensor] = {
         "indices": torch.tensor([int(item["index"]) for item in items], dtype=torch.int64),
@@ -157,6 +233,38 @@ def collate_attention(items: list[dict[str, Any]], variant: str) -> dict[str, to
         batch["round_result_mask"] = pad_boolean_sequences(
             [item["round_result_mask"] for item in items], decisions.shape[1]
         )
+    elif variant in INDIVIDUAL_RCT_VARIANTS:
+        calls, call_mask = pad_sequences([item["calls"] for item in items])
+        results, result_mask = pad_sequences([item["results"] for item in items])
+        batch["calls"] = calls
+        batch["call_mask"] = call_mask
+        batch["results"] = results
+        batch["result_mask"] = result_mask
+        batch["result_to_call"] = pad_integer_sequences(
+            [item["result_to_call"] for item in items], results.shape[1]
+        )
+        if variant in ROUND_TOOL_RCT_VARIANTS:
+            call_round_context, _ = pad_sequences(
+                [item["call_round_context"] for item in items]
+            )
+            result_round_context, _ = pad_sequences(
+                [item["result_round_context"] for item in items]
+            )
+            batch["call_round_context"] = call_round_context
+            batch["call_round_context_mask"] = pad_boolean_sequences(
+                [item["call_round_context_mask"] for item in items], calls.shape[1]
+            )
+            batch["call_round_group"] = pad_integer_sequences(
+                [item["call_round_group"] for item in items], calls.shape[1]
+            )
+            batch["result_round_context"] = result_round_context
+            batch["result_round_context_mask"] = pad_boolean_sequences(
+                [item["result_round_context_mask"] for item in items],
+                results.shape[1],
+            )
+            batch["result_round_group"] = pad_integer_sequences(
+                [item["result_round_group"] for item in items], results.shape[1]
+            )
     else:
         raise ValueError(f"Unknown attention variant: {variant}")
     return batch

@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 from guard_training.common.metrics import binary_metrics
 from guard_training.tool_step_attention.dataset import (
     CALL_VARIANTS,
+    INDIVIDUAL_RCT_VARIANTS,
     RESULT_VARIANTS,
     ToolStepAttentionDataset,
     collate_attention,
@@ -100,6 +101,19 @@ def attention_summary(
         metadata = [step for step in steps if step.get("kind") == "tool_result_end"]
         weights = attention["step_weights"][batch_position].cpu()
         return {"top_results": top_entries(weights, len(metadata), metadata, top_k)}
+    if variant in INDIVIDUAL_RCT_VARIANTS:
+        calls = [step for step in steps if step.get("kind") == "tool_call_end"]
+        results = [step for step in steps if step.get("kind") == "tool_result_end"]
+        call_weights = attention["call_weights"][batch_position].cpu()
+        result_weights = attention["result_weights"][batch_position].cpu()
+        return {
+            "top_calls": top_entries(
+                call_weights, len(calls), calls, top_k
+            ),
+            "top_results": top_entries(
+                result_weights, len(results), results, top_k
+            ),
+        }
     pairs = list(row.get("round_pairs", []))
     decision_weights = attention["decision_weights"][batch_position].cpu()
     result_weights = attention["result_weights"][batch_position].cpu()
