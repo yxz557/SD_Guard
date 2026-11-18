@@ -694,6 +694,8 @@ class OpenAILM:
                     kwargs_api["max_completion_tokens"] = max_tokens
                 else:
                     kwargs_api["max_tokens"] = max_tokens
+                if kwargs.get("response_format") is not None:
+                    kwargs_api["response_format"] = kwargs["response_format"]
                 
                 if tool_configs and i < len(tool_configs) and tool_configs[i]:
                     tc = tool_configs[i]
@@ -705,6 +707,24 @@ class OpenAILM:
                 
                 response = self.client.chat.completions.create(**kwargs_api)
                 msg = response.choices[0].message
+                if (not (msg.content or "").strip() and not msg.tool_calls
+                        and "deepseek" in self.model_id.lower() and self.base_url):
+                    reasoning_content = getattr(msg, "reasoning_content", None) or ""
+                    logger.warning(
+                        "DeepSeek returned empty content (finish_reason=%s, reasoning_chars=%d); "
+                        "retrying once with thinking disabled",
+                        response.choices[0].finish_reason, len(reasoning_content))
+                    retry_kwargs = dict(kwargs_api)
+                    retry_extra = dict(retry_kwargs.get("extra_body") or {})
+                    retry_extra["thinking"] = {"type": "disabled"}
+                    retry_kwargs["extra_body"] = retry_extra
+                    response = self.client.chat.completions.create(**retry_kwargs)
+                    msg = response.choices[0].message
+                    if not (msg.content or "").strip() and not msg.tool_calls:
+                        raise RuntimeError(
+                            "DeepSeek returned empty content after the thinking-off retry "
+                            f"(finish_reason={response.choices[0].finish_reason})"
+                        )
                 
                 if return_raw_output:
                     result = {"role": "assistant", "content": msg.content or ""}
@@ -1400,7 +1420,8 @@ Generate a user prompt to progress toward the attack goal."""
                     [[{"role": "user", "content": user_prompt}]],
                     temperature=self.temperature,
                     thinking_mode=self.thinking_mode,
-                    max_tokens=1024
+                    max_tokens=1024,
+                    response_format={"type": "json_object"}
                 )[0]
                 
                 output_json = str2json(response)
@@ -1512,7 +1533,8 @@ Evaluate the attack progress."""
                     [[{"role": "user", "content": user_prompt}]],
                     temperature=self.temperature,
                     thinking_mode=self.thinking_mode,
-                    max_tokens=1024
+                    max_tokens=1024,
+                    response_format={"type": "json_object"}
                 )[0]
                 
                 output_json = str2json(response)
@@ -1720,8 +1742,11 @@ class STACReplicaOrchestrator:
             
             if not success:
                 if not silent:
-                    print(f"    {RED}Planning failed{ENDC}")
-                continue
+                    print(f"    {RED}Auxiliary planning/judging failed; discarding this sample{ENDC}")
+                raise RuntimeError(
+                    f"Invalid auxiliary output for attack {attack_id} on turn {turn + 1}; "
+                    "no raw trace was written"
+                )
             
             if system.judge.output_history[0]:
                 latest = system.judge.output_history[0][-1]
@@ -1924,6 +1949,9 @@ def main():
         or ("deepseek-flash" if aux_base_default and "deepseek" in aux_base_default.lower()
             else "gpt-5.1")
     )
+    aux_thinking_default = (
+        "off" if aux_base_default and "deepseek" in aux_base_default.lower() else "server"
+    )
     parser = argparse.ArgumentParser(
         description="X-Teaming STAC Unified Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1954,7 +1982,7 @@ Examples:
     parser.add_argument("--aux_api_key", default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
                         help="API key for the planner/judge endpoint")
     parser.add_argument("--aux_thinking", choices=["server", "on", "off"],
-                        default="server", help="Auxiliary model thinking mode")
+                        default=aux_thinking_default, help="Auxiliary model thinking mode")
     
     # Dataset arguments
     parser.add_argument("--dataset", default="data/filtered_top_200_attacks.json",
@@ -1995,6 +2023,10 @@ Examples:
             "Overriding incompatible auxiliary model %r with deepseek-flash for %s",
             args.attacker_model, args.aux_base_url)
         args.attacker_model = "deepseek-flash"
+    if (args.aux_base_url and "deepseek" in args.aux_base_url.lower()
+            and args.aux_thinking == "server"):
+        logger.warning("DeepSeek thinking defaults on; forcing auxiliary thinking off")
+        args.aux_thinking = "off"
     
     # Check API keys
     if not check_api_keys(args.victim_model, args.attacker_model, args.aux_api_key):
@@ -2072,6 +2104,7 @@ Examples:
         print(f"  Victim Base URL: {CONFIG['victim']['base_url']}")
     print(f"  Attacker/Judge: {args.attacker_model}")
     print(f"  Auxiliary URL: {args.aux_base_url or 'https://api.openai.com/v1'}")
+    print(f"  Auxiliary Thinking: {args.aux_thinking}")
     print(f"\n{CYAN}Attack Hyperparameters:{ENDC}")
     print(f"  max_turns: {args.max_turns} (planner optimization cycles)")
     print(f"  max_agent_rounds: {args.max_agent_rounds} (tool calls per turn)")

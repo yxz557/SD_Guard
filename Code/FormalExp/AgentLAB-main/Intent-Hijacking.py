@@ -1312,6 +1312,9 @@ def main():
         or ("deepseek-flash" if aux_base_default and "deepseek" in aux_base_default.lower()
             else "gpt-5.1")
     )
+    aux_thinking_default = (
+        "off" if aux_base_default and "deepseek" in aux_base_default.lower() else "server"
+    )
     parser = argparse.ArgumentParser(
         description="AgentLAB Unified Multi-Turn Attack Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1358,7 +1361,7 @@ EXAMPLES:
                         default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
                         help="API key for planner/judge")
     parser.add_argument("--aux_thinking", choices=["server", "on", "off"],
-                        default="server", help="Planner/judge thinking mode")
+                        default=aux_thinking_default, help="Planner/judge thinking mode")
 
     # dataset
     parser.add_argument("--dataset", default="data/filtered_top_200_attacks.json")
@@ -1392,6 +1395,10 @@ EXAMPLES:
             "Overriding incompatible planner/judge model %r with deepseek-flash for %s",
             args.planner_judge_model, args.aux_base_url)
         args.planner_judge_model = "deepseek-flash"
+    if (args.aux_base_url and "deepseek" in args.aux_base_url.lower()
+            and args.aux_thinking == "server"):
+        logger.warning("DeepSeek thinking defaults on; forcing planner/judge thinking off")
+        args.aux_thinking = "off"
 
     # ---------- build config ----------
     CONFIG["attacker"]["base_url"] = args.attacker_url

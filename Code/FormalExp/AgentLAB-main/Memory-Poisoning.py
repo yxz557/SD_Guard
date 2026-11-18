@@ -1567,6 +1567,7 @@ def main():
         os.environ.get("AUX_MODEL")
         or ("deepseek-flash" if "deepseek" in aux_base_default.lower() else "gpt-5.1")
     )
+    aux_thinking_default = "off" if "deepseek" in aux_base_default.lower() else "server"
     parser = argparse.ArgumentParser(
         description="AgentLAB Memory Injection Attack v5.0",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1610,7 +1611,7 @@ EXAMPLES:
                         default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY", ""),
                         help="Auxiliary endpoint key (defaults to DEEPSEEK_API_KEY, then OPENAI_API_KEY)")
     parser.add_argument("--aux_thinking", choices=["server", "on", "off"],
-                        default="server", help="Auxiliary model thinking mode")
+                        default=aux_thinking_default, help="Auxiliary model thinking mode")
 
     # Model overrides
     parser.add_argument("--openai_models", nargs='+', default=["gpt-5.1", "gpt-4.1", "gpt-4o"])
@@ -1653,6 +1654,10 @@ EXAMPLES:
         print(f"{YELLOW}Overriding incompatible auxiliary model "
               f"{aux_model!r} with deepseek-flash for {args.aux_base_url}{ENDC}")
         aux_model = "deepseek-flash"
+    if (args.aux_base_url and "deepseek" in args.aux_base_url.lower()
+            and args.aux_thinking == "server"):
+        print(f"{YELLOW}DeepSeek thinking defaults on; forcing auxiliary thinking off{ENDC}")
+        args.aux_thinking = "off"
     config = Config(
         openai_api_key=args.openai_key, anthropic_api_key=args.anthropic_key,
         google_api_key=args.google_key, openai_models=args.openai_models,

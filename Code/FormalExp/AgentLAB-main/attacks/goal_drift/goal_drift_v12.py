@@ -994,6 +994,8 @@ def main():
     aux_model_default=(os.environ.get("AUX_MODEL")
                        or ("deepseek-flash" if aux_base_default and "deepseek" in aux_base_default.lower()
                            else None))
+    aux_thinking_default=("off" if aux_base_default and "deepseek" in aux_base_default.lower()
+                          else "server")
     p.add_argument("--victim_model",type=str,default="gpt-4o")
     p.add_argument("--victim_base_url",type=str,default=None,help="vLLM server URL (None=OpenAI)")
     p.add_argument("--victim_api_key",type=str,default=None,help="API key (None=env var, 'EMPTY'=vLLM)")
@@ -1012,7 +1014,7 @@ def main():
     p.add_argument("--aux_api_key",type=str,
                    default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
                    help="Auxiliary endpoint key (defaults to DEEPSEEK_API_KEY, then OPENAI_API_KEY)")
-    p.add_argument("--aux_thinking",choices=["server","on","off"],default="server",
+    p.add_argument("--aux_thinking",choices=["server","on","off"],default=aux_thinking_default,
                    help="Auxiliary reasoning mode; DeepSeek on/off is sent per request")
     p.add_argument("--num_tasks",type=int,default=100)
     p.add_argument("--num_seeds",type=int,default=3)
@@ -1042,6 +1044,9 @@ def main():
             a.judge_model="deepseek-flash"
             a.extractor_model="deepseek-flash"
             a.stealthiness_model="deepseek-flash"
+        if a.aux_thinking=="server":
+            print(f"{Colors.YELLOW}DeepSeek thinking defaults on; forcing auxiliary thinking off{Colors.ENDC}")
+            a.aux_thinking="off"
 
     if not a.aux_api_key: print("Set DEEPSEEK_API_KEY/OPENAI_API_KEY or pass --aux_api_key"); sys.exit(1)
 

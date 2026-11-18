@@ -136,10 +136,22 @@ export AUX_MODEL='deepseek-flash'
 export SD_ROOT=/root/autodl-tmp/Code/SD_Guard
 export AL_ROOT="$SD_ROOT/Code/FormalExp/AgentLAB-main"
 export RUN_ROOT="$SD_ROOT/results/agentlab/qwen3_8b_nothink_v1"
+export TOOL_ROOT="$RUN_ROOT/tool_chaining_deepseek_flash"
 export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
-mkdir -p "$RUN_ROOT"
+mkdir -p "$RUN_ROOT" "$TOOL_ROOT"
 cd "$AL_ROOT"
 ```
+
+Before running Tool Chaining, verify that the server copy contains the empty
+DeepSeek response retry and the auxiliary-thinking startup print:
+
+```bash
+grep -n 'retrying once with thinking disabled' Tool-chaining.py
+grep -n 'Auxiliary Thinking' Tool-chaining.py
+```
+
+Both commands must print a matching source line. No output means an older copy
+of `Tool-chaining.py` is being executed.
 
 Memory Poisoning also needs a local embedding model. This is a different model
 type from chat completion and runs on CPU in the commands below. Install/cache
@@ -186,7 +198,7 @@ python Intent-Hijacking.py \
 ### Tool Chaining smoke test
 
 ```bash
-mkdir -p "$RUN_ROOT/tool_chaining_smoke"
+mkdir -p "$TOOL_ROOT/smoke"
 python Tool-chaining.py \
   --victim_model "$VICTIM_MODEL_NAME" \
   --victim_base_url http://127.0.0.1:8001/v1 \
@@ -204,13 +216,23 @@ python Tool-chaining.py \
   --max_turns 10 \
   --max_agent_rounds 10 \
   --success_threshold 3 \
-  --output_dir "$RUN_ROOT/tool_chaining_smoke" \
-  --trace_dir "$RUN_ROOT/tool_chaining_smoke/traces" \
-  2>&1 | tee "$RUN_ROOT/tool_chaining_smoke/run.log"
+  --output_dir "$TOOL_ROOT/smoke/results" \
+  --trace_dir "$TOOL_ROOT/smoke/traces" \
+  2>&1 | tee "$TOOL_ROOT/smoke/run.log"
 ```
 
 The startup log must say `SHADE_Arena environment loaded successfully.` If it
 says `Using mock environment instead.`, do not use that run as formal data.
+It must also print `Attacker/Judge: deepseek-flash`,
+`Auxiliary URL: https://api.deepseek.com`, and `Auxiliary Thinking: off`.
+An empty response that is recovered by the automatic retry is acceptable. If
+the final smoke log contains `Planner returned an empty prompt`, do not start
+the full run.
+
+```bash
+SMOKE_COUNT=$(find "$TOOL_ROOT/smoke/traces" -name raw_trace.json | wc -l)
+test "$SMOKE_COUNT" -eq 2 || { echo "INVALID smoke trace count: $SMOKE_COUNT/2"; exit 1; }
+```
 
 ### Objective Drifting smoke test
 
@@ -335,7 +357,7 @@ python Intent-Hijacking.py \
 ### Tool Chaining full run
 
 ```bash
-mkdir -p "$RUN_ROOT/tool_chaining"
+mkdir -p "$TOOL_ROOT/full"
 python Tool-chaining.py \
   --victim_model "$VICTIM_MODEL_NAME" \
   --victim_base_url http://127.0.0.1:8001/v1 \
@@ -353,9 +375,21 @@ python Tool-chaining.py \
   --max_turns 10 \
   --max_agent_rounds 10 \
   --success_threshold 3 \
-  --output_dir "$RUN_ROOT/tool_chaining" \
-  --trace_dir "$RUN_ROOT/tool_chaining/traces" \
-  2>&1 | tee "$RUN_ROOT/tool_chaining/run.log"
+  --output_dir "$TOOL_ROOT/full/results" \
+  --trace_dir "$TOOL_ROOT/full/traces" \
+  2>&1 | tee "$TOOL_ROOT/full/run.log"
+```
+
+After the full run, reject the run if unrecovered planner failures exist:
+
+```bash
+if grep -Eq 'Planner returned an empty prompt|Planner error:.*empty content after' "$TOOL_ROOT/full/run.log"; then
+  echo 'INVALID: unrecovered planner failures found'
+  exit 1
+fi
+FULL_COUNT=$(find "$TOOL_ROOT/full/traces" -name raw_trace.json | wc -l)
+test "$FULL_COUNT" -eq 200 || { echo "INCOMPLETE full trace count: $FULL_COUNT/200"; exit 1; }
+echo "VALID: $FULL_COUNT/200 traces"
 ```
 
 ### Objective Drifting full run
