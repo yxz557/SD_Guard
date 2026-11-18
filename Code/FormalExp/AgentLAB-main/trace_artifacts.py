@@ -18,6 +18,34 @@ from typing import Any, Iterable, Mapping
 
 RAW_TRACE_SCHEMA_VERSION = "sd_guard.raw_trace.v1"
 
+_SECRET_CONFIG_KEYS = {
+    "api_key", "authorization", "password", "access_token", "refresh_token",
+    "client_secret", "secret_access_key",
+}
+
+
+def redact_secrets(value: Any) -> Any:
+    """Return a JSON-compatible copy with configuration credentials removed."""
+    if is_dataclass(value):
+        value = asdict(value)
+    if isinstance(value, Mapping):
+        redacted = {}
+        for key, item in value.items():
+            name = str(key).lower()
+            is_secret = (
+                name in _SECRET_CONFIG_KEYS
+                or name.endswith("_api_key")
+                or name.endswith("_password")
+                or name.endswith("_client_secret")
+                or name.endswith("_access_token")
+                or name.endswith("_refresh_token")
+            )
+            redacted[str(key)] = "[REDACTED]" if is_secret and item else redact_secrets(item)
+        return redacted
+    if isinstance(value, (list, tuple, set)):
+        return [redact_secrets(item) for item in value]
+    return _jsonable(value)
+
 
 def _jsonable(value: Any) -> Any:
     """Convert SDK objects and dataclasses to stable JSON-compatible values."""
@@ -196,6 +224,7 @@ __all__ = [
     "assistant_message_dict",
     "build_sample_id",
     "extract_tool_trace",
+    "redact_secrets",
     "sha256_json",
     "write_raw_trace",
 ]

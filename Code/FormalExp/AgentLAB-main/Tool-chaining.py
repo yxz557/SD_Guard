@@ -112,7 +112,7 @@ from openai import OpenAI, BadRequestError, APIConnectionError
 import anthropic
 import json_repair
 
-from trace_artifacts import extract_tool_trace, write_raw_trace
+from trace_artifacts import extract_tool_trace, redact_secrets, write_raw_trace
 
 # Try to import Google's Generative AI SDK
 try:
@@ -2085,7 +2085,7 @@ Examples:
         "run_id": datetime.now().strftime("%Y%m%d_%H%M%S_%f"),
         "seed": args.seed,
     }
-    save_json(output_dir, CONFIG, "config.json")
+    save_json(output_dir, redact_secrets(CONFIG), "config.json")
     
     # Load attacks
     attacks = load_attacks(args.dataset, args.num_samples, args.seed)
@@ -2152,7 +2152,7 @@ Examples:
     save_json(output_dir, {
         "results": [asdict(r) for r in results],
         "metrics": m,
-        "config": CONFIG
+        "config": redact_secrets(CONFIG)
     }, "final_results.json")
     
     print(f"\n{GREEN}Results saved to: {output_dir}{ENDC}")

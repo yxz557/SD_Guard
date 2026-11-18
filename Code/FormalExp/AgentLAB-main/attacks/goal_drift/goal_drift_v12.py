@@ -34,7 +34,7 @@ AGENTLAB_ROOT = Path(__file__).resolve().parents[2]
 if str(AGENTLAB_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENTLAB_ROOT))
 
-from trace_artifacts import assistant_message_dict, write_raw_trace
+from trace_artifacts import assistant_message_dict, redact_secrets, write_raw_trace
 
 try:
     from openai import OpenAI
@@ -784,7 +784,7 @@ class ExperimentRunner:
 
         self.results = ExperimentResults(
             experiment_id=f"v12_{config.victim_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            start_time=datetime.now().isoformat(), config=asdict(config)
+            start_time=datetime.now().isoformat(), config=redact_secrets(config)
         )
 
     def _test_victim(self):

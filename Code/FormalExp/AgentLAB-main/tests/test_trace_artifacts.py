@@ -17,6 +17,7 @@ if str(AGENTLAB_ROOT) not in sys.path:
 from trace_artifacts import (
     assistant_message_dict,
     extract_tool_trace,
+    redact_secrets,
     write_raw_trace,
 )
 
@@ -130,6 +131,18 @@ class TraceArtifactTests(unittest.TestCase):
         message = assistant_message_dict(Message())
         self.assertEqual(message["reasoning_content"], "need to look this up")
         self.assertEqual(message["tool_calls"][0]["function"]["name"], "lookup")
+
+    def test_redact_secrets_preserves_non_secret_generation_config(self) -> None:
+        config = {
+            "attacker": {"api_key": "secret", "max_tokens": 2048},
+            "auxiliary_api_key": "secret-2",
+            "victim": {"model": "Qwen/Qwen3-8B", "top_k": 20},
+        }
+        redacted = redact_secrets(config)
+        self.assertEqual(redacted["attacker"]["api_key"], "[REDACTED]")
+        self.assertEqual(redacted["auxiliary_api_key"], "[REDACTED]")
+        self.assertEqual(redacted["attacker"]["max_tokens"], 2048)
+        self.assertEqual(redacted["victim"]["model"], "Qwen/Qwen3-8B")
 
 
 if __name__ == "__main__":

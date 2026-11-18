@@ -75,7 +75,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_t
 from openai import OpenAI, BadRequestError, APIConnectionError
 import json_repair
 
-from trace_artifacts import write_raw_trace
+from trace_artifacts import redact_secrets, write_raw_trace
 
 try:
     import tiktoken
@@ -1476,7 +1476,7 @@ EXAMPLES:
         d = base / vname.replace("/", "_").replace(".", "_")
         d.mkdir(parents=True, exist_ok=True)
         output_dirs[vname] = d
-    save_results(base, CONFIG, "config.json")
+    save_results(base, redact_secrets(CONFIG), "config.json")
 
     # ---------- load dataset ----------
     attacks = load_attack_dataset(args.dataset, args.num_samples, args.seed)
@@ -1533,7 +1533,7 @@ EXAMPLES:
         save_results(output_dirs[vname], {
             "results": [asdict(r) for r in all_results[vname]],
             "statistics": stats,
-            "config": CONFIG,
+            "config": redact_secrets(CONFIG),
         }, "final_results.json")
         generate_report(all_results[vname], output_dirs[vname], vname)
 
