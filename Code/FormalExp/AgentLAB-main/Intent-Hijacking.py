@@ -75,6 +75,8 @@ from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_t
 from openai import OpenAI, BadRequestError, APIConnectionError
 import json_repair
 
+from trace_artifacts import write_raw_trace
+
 try:
     import tiktoken
     TIKTOKEN_AVAILABLE = True
@@ -437,6 +439,8 @@ class VictimModel:
         self.provider = config.get("provider") or detect_provider(self.model)
         self.temperature = config.get("temperature", 0)
         self.conversation_history: List[Dict] = []
+        self.call_records: List[Dict] = []
+        self._last_response_details: Dict[str, Any] = {}
 
         # ---------- provider-specific init ----------
         if self.provider == "openai" or self.provider == "local":
@@ -478,13 +482,20 @@ class VictimModel:
 
     def reset(self):
         self.conversation_history = []
+        self.call_records = []
         self._gemini_chat = None
+        self._last_response_details = {}
 
     # ----- unified generate -----
     @retry(retry=retry_if_exception_type(Exception),
            stop=stop_after_attempt(3), wait=wait_fixed(2), reraise=True)
     def generate_response(self, user_message: str) -> str:
         self.conversation_history.append({"role": "user", "content": user_message})
+        request_messages = [
+            {"role": "system", "content": self.system_prompt},
+            *[dict(message) for message in self.conversation_history],
+        ]
+        self._last_response_details = {}
 
         try:
             if self.provider in ("openai", "local"):
@@ -498,8 +509,21 @@ class VictimModel:
         except Exception as e:
             logger.error(f"Victim ({self.name}) error: {e}")
             content = "[Error generating response]"
+            self._last_response_details["error"] = str(e)
 
-        content = self._clean(content)
+        raw_content = content
+        content = self._clean(raw_content)
+        assistant_message: Dict[str, Any] = {
+            "role": "assistant",
+            "content": content,
+            "raw_content": raw_content,
+        }
+        assistant_message.update(self._last_response_details)
+        self.call_records.append({
+            "request_messages": request_messages,
+            "response_message": assistant_message,
+        })
+        # Keep provider-facing history limited to standard chat fields.
         self.conversation_history.append({"role": "assistant", "content": content})
         return content
 
@@ -515,7 +539,11 @@ class VictimModel:
             kwargs["max_tokens"] = 4096
         # For Gemini through OpenAI-compat (not used here but kept for safety)
         resp = self.oai_client.chat.completions.create(**kwargs)
-        return resp.choices[0].message.content or ""
+        message = resp.choices[0].message
+        reasoning = getattr(message, "reasoning_content", None)
+        if reasoning is not None:
+            self._last_response_details["reasoning_content"] = reasoning
+        return message.content or ""
 
     # ---------- Anthropic native SDK ----------
     def _generate_anthropic(self) -> str:
@@ -1009,7 +1037,11 @@ class AgentLABOrchestrator:
         except Exception as e:
             logger.error(f"Strategy execution error: {e}", exc_info=True)
 
-        return AttackResult(
+        trace_messages = [
+            {"role": "system", "content": victim.system_prompt},
+            *victim.conversation_history,
+        ]
+        result = AttackResult(
             attack_id=attack_id,
             task_description=task_desc,
             attack_goal=attack_goal,
@@ -1023,6 +1055,53 @@ class AgentLABOrchestrator:
             victim_model=victim_name,
             textgrad_enabled=use_tg,
             metadata={"evaluation": final_eval, "strategy_index": strategy_idx})
+
+        trace_config = self.config.get("trace", {})
+        if trace_config.get("output_root"):
+            write_raw_trace(
+                trace_config["output_root"],
+                component="Intent Hijacking",
+                identity={
+                    "run_id": trace_config.get("run_id"),
+                    "attack_id": attack_id,
+                    "victim_model": victim.model,
+                    "strategy_index": strategy_idx,
+                },
+                task={
+                    "original_id": attack_data.get("original_id"),
+                    "task_description": task_desc,
+                    "attack_goal": attack_goal,
+                },
+                attack={
+                    "strategy_index": strategy_idx,
+                    "strategy": strategy,
+                    "textgrad_enabled": use_tg,
+                },
+                target={
+                    "model_id": victim.model,
+                    "provider": victim.provider,
+                    "temperature": victim.temperature,
+                },
+                trajectory={
+                    "messages": trace_messages,
+                    "model_calls": victim.call_records,
+                    "turn_count": result.total_turns,
+                    "final_response": last_response,
+                },
+                evaluation={
+                    "judge_output": final_eval,
+                    "judge_score": final_score,
+                    "runner_success": result.success,
+                    "label_status": "pending",
+                },
+                provenance={
+                    "run_id": trace_config.get("run_id"),
+                    "seed": trace_config.get("seed"),
+                    "runner": "Intent-Hijacking.py",
+                    "recorded_at": result.timestamp,
+                },
+            )
+        return result
 
 # ==========================================
 # RESULTS UTILITIES
@@ -1241,6 +1320,9 @@ EXAMPLES:
 
     # output
     parser.add_argument("--output_dir", default=None)
+    parser.add_argument(
+        "--trace_dir", default=None,
+        help="Immutable raw trace root (default: <output_dir>/traces)")
     args = parser.parse_args()
 
     # ---------- build config ----------
@@ -1295,6 +1377,12 @@ EXAMPLES:
     # ---------- output dirs ----------
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     base = Path(args.output_dir) if args.output_dir else Path("agentlab_results") / ts
+    trace_dir = Path(args.trace_dir) if args.trace_dir else base / "traces"
+    CONFIG["trace"] = {
+        "output_root": str(trace_dir),
+        "run_id": datetime.now().strftime("%Y%m%d_%H%M%S_%f"),
+        "seed": args.seed,
+    }
     output_dirs: Dict[str, Path] = {}
     for vname in victim_map:
         d = base / vname.replace("/", "_").replace(".", "_")

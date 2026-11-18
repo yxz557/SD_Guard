@@ -112,6 +112,8 @@ from openai import OpenAI, BadRequestError, APIConnectionError
 import anthropic
 import json_repair
 
+from trace_artifacts import extract_tool_trace, write_raw_trace
+
 # Try to import Google's Generative AI SDK
 try:
     import google.generativeai as genai
@@ -679,6 +681,9 @@ class OpenAILM:
                 
                 if return_raw_output:
                     result = {"role": "assistant", "content": msg.content or ""}
+                    reasoning_content = getattr(msg, "reasoning_content", None)
+                    if reasoning_content is not None:
+                        result["reasoning_content"] = reasoning_content
                     if msg.tool_calls:
                         result["tool_calls"] = [
                             {"id": tc.id, "type": "function", 
@@ -1130,6 +1135,7 @@ class Agent:
             self.envs = []
             self.tool_configs = []
             self.messages = []
+            self.model_calls = []
             self.running = np.array([])
     
     def extend_sys_prompt(self, prompt_to_append: str):
@@ -1150,6 +1156,7 @@ class Agent:
                 self.model.reset_session(i)
         
         self.messages = [[{'role': 'system', 'content': self.sys_prompt}] for _ in self.tool_configs]
+        self.model_calls = [[] for _ in self.tool_configs]
     
     def reset_running(self, running: np.ndarray = None):
         """Reset running status"""
@@ -1190,6 +1197,7 @@ class Agent:
             running_messages = [[self.messages[i][-1]] for i in agents_with_user_messages]
         else:
             running_messages = [self.messages[i] for i in agents_with_user_messages]
+        request_snapshots = deepcopy(running_messages)
         
         running_tool_configs = [self.tool_configs[i] for i in agents_with_user_messages]
         
@@ -1205,6 +1213,12 @@ class Agent:
         
         for i, completion_raw in enumerate(all_completion_raw):
             agent_idx = agents_with_user_messages[i]
+            raw_completion = deepcopy(completion_raw)
+            completion_raw.pop("reasoning_content", None)
+            self.model_calls[agent_idx].append({
+                "request_messages": request_snapshots[i],
+                "response_message": raw_completion,
+            })
             self.messages[agent_idx].append(completion_raw)
             self.running[agent_idx] = False
             
@@ -1645,7 +1659,17 @@ class STACReplicaOrchestrator:
             color = GREEN if success else RED
             print(f"\n  {color}[Result] Score: {final_score}/3, Success: {success}{ENDC}")
         
-        return AttackResult(
+        tool_info = agent.get_tool_info()[0] if agent.get_tool_info() else []
+        if isinstance(tool_info, str):
+            try:
+                tool_definitions = json.loads(tool_info)
+            except json.JSONDecodeError:
+                tool_definitions = tool_info
+        else:
+            tool_definitions = tool_info
+        environment_info = agent.get_env_info()[0] if agent.get_env_info() else ""
+
+        result = AttackResult(
             attack_id=attack_id,
             task_description=task_description,
             attack_goal=attack_goal,
@@ -1661,9 +1685,63 @@ class STACReplicaOrchestrator:
             attacker_model=self.config["attacker"]["model"],
             metadata={
                 "judge_history": self.judge.output_history[0] if self.judge.output_history else [],
-                "planner_history": self.planner.output_history[0] if self.planner.output_history else []
+                "planner_history": self.planner.output_history[0] if self.planner.output_history else [],
+                "tool_definitions": tool_definitions,
+                "environment_info": environment_info,
             }
         )
+
+        trace_config = self.config.get("trace", {})
+        if trace_config.get("output_root"):
+            write_raw_trace(
+                trace_config["output_root"],
+                component="Tool Chaining",
+                identity={
+                    "run_id": trace_config.get("run_id"),
+                    "attack_id": attack_id,
+                    "victim_model": result.victim_model,
+                },
+                task={
+                    "original_id": attack_data.get("original_id"),
+                    "task_description": task_description,
+                    "attack_goal": attack_goal,
+                    "verified_tool_chain": tool_chain,
+                },
+                attack={
+                    "explanation": explanation,
+                    "planner_history": result.metadata["planner_history"],
+                },
+                target={
+                    "model_id": result.victim_model,
+                    "provider": provider,
+                    "temperature": self.config["victim"]["temperature"],
+                },
+                environment={
+                    "name": env_name,
+                    "description": environment_info,
+                    "tool_definitions": tool_definitions,
+                },
+                trajectory={
+                    "messages": result.conversation,
+                    "model_calls": agent.model_calls[0],
+                    "tool_trace": extract_tool_trace(result.conversation),
+                    "executed_tools": executed_tools,
+                },
+                evaluation={
+                    "judge_history": result.metadata["judge_history"],
+                    "final_score": final_score,
+                    "runner_success": success,
+                    "label_status": "pending",
+                },
+                provenance={
+                    "run_id": trace_config.get("run_id"),
+                    "seed": trace_config.get("seed"),
+                    "runner": "Tool-chaining.py",
+                    "recorded_at": result.timestamp,
+                    "shade_available": SHADE_AVAILABLE,
+                },
+            )
+        return result
 
 # ==========================================
 # UTILITIES
@@ -1788,6 +1866,8 @@ Examples:
     # Output arguments
     parser.add_argument("--output_dir", default=None,
                         help="Output directory (default: auto-generated)")
+    parser.add_argument("--trace_dir", default=None,
+                        help="Raw trace root (default: <output_dir>/traces)")
     parser.add_argument("--silent", action="store_true",
                         help="Suppress detailed output")
     
@@ -1827,6 +1907,12 @@ Examples:
     else:
         output_dir = Path("stac_unified_results") / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     output_dir.mkdir(parents=True, exist_ok=True)
+    trace_dir = Path(args.trace_dir) if args.trace_dir else output_dir / "traces"
+    CONFIG["trace"] = {
+        "output_root": str(trace_dir),
+        "run_id": datetime.now().strftime("%Y%m%d_%H%M%S_%f"),
+        "seed": args.seed,
+    }
     save_json(output_dir, CONFIG, "config.json")
     
     # Load attacks
