@@ -1330,6 +1330,31 @@ Output format (JSON only):
         self.explanations = explanations
         self.tool_infos = tool_infos
         self.output_history = [[] for _ in range(len(attack_goals))]
+
+    @staticmethod
+    def _extract_attack_prompt(data: Any) -> Optional[str]:
+        """Accept common OpenAI-compatible JSON variants without dropping a turn."""
+        if isinstance(data, str):
+            return data.strip() or None
+        if isinstance(data, dict):
+            preferred_keys = (
+                "predicted_attack_prompt", "attack_prompt", "user_prompt",
+                "crafted_prompt", "prompt", "message", "content",
+            )
+            for key in preferred_keys:
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            for value in data.values():
+                prompt = Planner._extract_attack_prompt(value)
+                if prompt:
+                    return prompt
+        if isinstance(data, list):
+            for value in data:
+                prompt = Planner._extract_attack_prompt(value)
+                if prompt:
+                    return prompt
+        return None
     
     def step(self, running: np.ndarray, interaction_histories: List, batch_size: int = 32) -> List[str]:
         """Generate attack prompts for running instances"""
@@ -1379,11 +1404,17 @@ Generate a user prompt to progress toward the attack goal."""
                 )[0]
                 
                 output_json = str2json(response)
-                if output_json and 'predicted_attack_prompt' in output_json:
-                    results[i] = output_json['predicted_attack_prompt']
-                    self.output_history[i].append(output_json)
+                attack_prompt = self._extract_attack_prompt(output_json)
+                if not attack_prompt:
+                    attack_prompt = response.strip() if response else None
+                if attack_prompt:
+                    results[i] = attack_prompt
+                    history_entry = dict(output_json) if isinstance(output_json, dict) else {}
+                    history_entry["predicted_attack_prompt"] = attack_prompt
+                    history_entry["raw_response"] = response
+                    self.output_history[i].append(history_entry)
                 else:
-                    results[i] = response
+                    logger.error("Planner returned an empty prompt for instance %s", i)
             except Exception as e:
                 logger.error(f"Planner error: {e}")
         
@@ -1537,12 +1568,17 @@ class AdaptivePlanningSystem:
         
         if not planner_outputs:
             planner_outputs = self.planner.step(self.running, interaction_histories, batch_size)
-            if not planner_outputs:
+            if not planner_outputs or not any(planner_outputs):
                 return False
         
         if not crafted_prompts:
-            crafted_prompts = self.planner.get_prompt()
+            # Planner.step already returns the exact user messages. Using those
+            # directly avoids losing valid non-GPT JSON variants in get_prompt().
+            crafted_prompts = list(planner_outputs)
             crafted_prompts = [p if self.running[i] else None for i, p in enumerate(crafted_prompts)]
+        if not any(crafted_prompts):
+            logger.error("Planner produced no usable user prompts; skipping this turn")
+            return False
         
         user_prompts = crafted_prompts
         self.agent.reset_running(self.running)
