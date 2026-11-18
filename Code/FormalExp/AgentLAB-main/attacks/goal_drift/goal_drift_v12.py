@@ -988,6 +988,7 @@ class ExperimentRunner:
 
 def main():
     p=argparse.ArgumentParser(description="Goal Drift v12 — Unified All-Victim")
+    aux_model_default=os.environ.get("AUX_MODEL")
     p.add_argument("--victim_model",type=str,default="gpt-4o")
     p.add_argument("--victim_base_url",type=str,default=None,help="vLLM server URL (None=OpenAI)")
     p.add_argument("--victim_api_key",type=str,default=None,help="API key (None=env var, 'EMPTY'=vLLM)")
@@ -997,10 +998,10 @@ def main():
     p.add_argument("--victim_max_tokens",type=int,default=None)
     p.add_argument("--victim_thinking",choices=["server","on","off"],default="server",
                    help="Qwen thinking mode; on/off is sent per request")
-    p.add_argument("--attacker_model",type=str,default="gpt-5.2")
-    p.add_argument("--judge_model",type=str,default="gpt-5.1")
-    p.add_argument("--extractor_model",type=str,default="gpt-5.1")
-    p.add_argument("--stealthiness_model",type=str,default="gpt-5.1")
+    p.add_argument("--attacker_model",type=str,default=aux_model_default or "gpt-5.2")
+    p.add_argument("--judge_model",type=str,default=aux_model_default or "gpt-5.1")
+    p.add_argument("--extractor_model",type=str,default=aux_model_default or "gpt-5.1")
+    p.add_argument("--stealthiness_model",type=str,default=aux_model_default or "gpt-5.1")
     p.add_argument("--aux_base_url",type=str,default=os.environ.get("OPENAI_BASE_URL"),
                    help="OpenAI-compatible URL for attacker/judge/extractor")
     p.add_argument("--aux_api_key",type=str,
@@ -1019,6 +1020,22 @@ def main():
     p.add_argument("--success_weight",type=float,default=10.0)
     p.add_argument("--verbose",action="store_true")
     a=p.parse_args()
+
+    if a.aux_base_url and "api.deepseek.com" in a.aux_base_url.lower():
+        auxiliary_models = {
+            "attacker": a.attacker_model,
+            "judge": a.judge_model,
+            "extractor": a.extractor_model,
+            "stealthiness": a.stealthiness_model,
+        }
+        invalid = {k: v for k, v in auxiliary_models.items()
+                   if not v.lower().startswith("deepseek-")}
+        if invalid:
+            p.error(
+                "DeepSeek auxiliary endpoint requires DeepSeek model names; "
+                f"invalid settings: {invalid}. Pass every model flag as "
+                "deepseek-flash or export AUX_MODEL=deepseek-flash."
+            )
 
     if not a.aux_api_key: print("Set DEEPSEEK_API_KEY/OPENAI_API_KEY or pass --aux_api_key"); sys.exit(1)
 

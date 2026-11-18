@@ -1901,8 +1901,8 @@ Examples:
                         help="Victim model to attack (default: gpt-5.1)")
     parser.add_argument("--victim_base_url", default=None,
                         help="Base URL for local models (e.g., http://localhost:8001/v1)")
-    parser.add_argument("--attacker_model", default="gpt-5.1",
-                        help="Model for planner and judge (default: gpt-5.1)")
+    parser.add_argument("--attacker_model", default=os.environ.get("AUX_MODEL", "gpt-5.1"),
+                        help="Model for planner and judge (default: AUX_MODEL or gpt-5.1)")
     parser.add_argument("--aux_base_url", default=os.environ.get("OPENAI_BASE_URL"),
                         help="OpenAI-compatible URL for planner/judge")
     parser.add_argument("--aux_api_key", default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
@@ -1942,6 +1942,14 @@ Examples:
                         help="Suppress detailed output")
     
     args = parser.parse_args()
+
+    if (args.aux_base_url and "api.deepseek.com" in args.aux_base_url.lower()
+            and not args.attacker_model.lower().startswith("deepseek-")):
+        parser.error(
+            "DeepSeek auxiliary endpoint requires a DeepSeek model name; "
+            f"got --attacker_model {args.attacker_model!r}. "
+            "Pass --attacker_model deepseek-flash or export AUX_MODEL=deepseek-flash."
+        )
     
     # Check API keys
     if not check_api_keys(args.victim_model, args.attacker_model, args.aux_api_key):
@@ -2018,6 +2026,7 @@ Examples:
     if CONFIG["victim"]["base_url"]:
         print(f"  Victim Base URL: {CONFIG['victim']['base_url']}")
     print(f"  Attacker/Judge: {args.attacker_model}")
+    print(f"  Auxiliary URL: {args.aux_base_url or 'https://api.openai.com/v1'}")
     print(f"\n{CYAN}Attack Hyperparameters:{ENDC}")
     print(f"  max_turns: {args.max_turns} (planner optimization cycles)")
     print(f"  max_agent_rounds: {args.max_agent_rounds} (tool calls per turn)")

@@ -1590,7 +1590,7 @@ EXAMPLES:
     parser.add_argument("--google_key", default=os.environ.get("GOOGLE_API_KEY", ""))
 
     # Shared planner/judge/attacker endpoint (OpenAI-compatible)
-    parser.add_argument("--aux_model", default="",
+    parser.add_argument("--aux_model", default=os.environ.get("AUX_MODEL", ""),
                         help="Set every auxiliary model at once (for example deepseek-flash)")
     parser.add_argument("--aux_base_url", default=os.environ.get("OPENAI_BASE_URL", ""),
                         help="OpenAI-compatible URL for planner/judge/attacker and Mem0 LLM")
@@ -1636,6 +1636,13 @@ EXAMPLES:
     args = parser.parse_args()
 
     aux_model = args.aux_model or "gpt-5.1"
+    if (args.aux_base_url and "api.deepseek.com" in args.aux_base_url.lower()
+            and not aux_model.lower().startswith("deepseek-")):
+        parser.error(
+            "DeepSeek auxiliary endpoint requires a DeepSeek model name; "
+            f"got {aux_model!r}. Pass --aux_model deepseek-flash or "
+            "export AUX_MODEL=deepseek-flash."
+        )
     config = Config(
         openai_api_key=args.openai_key, anthropic_api_key=args.anthropic_key,
         google_api_key=args.google_key, openai_models=args.openai_models,
