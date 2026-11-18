@@ -189,11 +189,17 @@ CONFIG = {
     },
     "planner": {
         "model": "gpt-5.1",
+        "base_url": None,
+        "api_key": None,
+        "thinking_mode": "server",
         "temperature": 0.5,
         "num_strategies": 2,
     },
     "judge": {
         "model": "gpt-5.1",
+        "base_url": None,
+        "api_key": None,
+        "thinking_mode": "server",
         "temperature": 0,
     },
     "textgrad": {
@@ -396,8 +402,12 @@ class OpenAIAgent:
 
     def __init__(self, config: Dict):
         self.model = config["model"]
-        base_url = config.get("base_url")
-        api_key = config.get("api_key") or os.environ.get(config.get("api_key_env", "OPENAI_API_KEY"), "EMPTY")
+        base_url = (config.get("base_url") or os.environ.get("AUX_BASE_URL")
+                    or os.environ.get("OPENAI_BASE_URL"))
+        api_key = (config.get("api_key") or os.environ.get("DEEPSEEK_API_KEY")
+                   or os.environ.get(config.get("api_key_env", "OPENAI_API_KEY"), "EMPTY"))
+        self.base_url = base_url
+        self.thinking_mode = config.get("thinking_mode", "server")
         if base_url:
             self.client = OpenAI(api_key=api_key, base_url=base_url)
         else:
@@ -415,6 +425,13 @@ class OpenAIAgent:
         kwargs: Dict[str, Any] = {"model": self.model, "messages": messages, "temperature": temp}
         if response_format:
             kwargs["response_format"] = response_format
+        if (self.base_url and "deepseek" in self.base_url.lower()
+                and self.thinking_mode in ("on", "off")):
+            kwargs["extra_body"] = {
+                "thinking": {
+                    "type": "enabled" if self.thinking_mode == "on" else "disabled"
+                }
+            }
         if is_gpt5_or_newer(self.model):
             kwargs["max_completion_tokens"] = 4096
         else:
@@ -1267,11 +1284,11 @@ def run_for_victims(attacks: List[Dict], victim_map: Dict[str, Dict],
 # ==========================================
 # API KEY CHECK
 # ==========================================
-def check_keys(victim_map: Dict[str, Dict]) -> List[str]:
+def check_keys(victim_map: Dict[str, Dict], auxiliary_api_key: str = "") -> List[str]:
     missing = []
-    # Planner / judge always need OpenAI
-    if not os.environ.get("OPENAI_API_KEY"):
-        missing.append("OPENAI_API_KEY (planner/judge)")
+    if not (auxiliary_api_key or os.environ.get("DEEPSEEK_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")):
+        missing.append("DEEPSEEK_API_KEY/OPENAI_API_KEY (planner/judge)")
     for vname, vcfg in victim_map.items():
         prov = vcfg.get("provider") or detect_provider(vcfg["model"])
         if prov == "anthropic" and not os.environ.get("ANTHROPIC_API_KEY"):
@@ -1285,6 +1302,16 @@ def check_keys(victim_map: Dict[str, Dict]) -> List[str]:
 # MAIN
 # ==========================================
 def main():
+    aux_base_default = (
+        os.environ.get("AUX_BASE_URL")
+        or os.environ.get("OPENAI_BASE_URL")
+        or ("https://api.deepseek.com" if os.environ.get("DEEPSEEK_API_KEY") else None)
+    )
+    aux_model_default = (
+        os.environ.get("AUX_MODEL")
+        or ("deepseek-flash" if aux_base_default and "deepseek" in aux_base_default.lower()
+            else "gpt-5.1")
+    )
     parser = argparse.ArgumentParser(
         description="AgentLAB Unified Multi-Turn Attack Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1323,8 +1350,15 @@ EXAMPLES:
                         help="Attacker model ID")
 
     # planner / judge
-    parser.add_argument("--planner_judge_model", default="gpt-5.1",
+    parser.add_argument("--planner_judge_model", default=aux_model_default,
                         help="Model for planner and judge")
+    parser.add_argument("--aux_base_url", default=aux_base_default,
+                        help="OpenAI-compatible URL for planner/judge")
+    parser.add_argument("--aux_api_key",
+                        default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+                        help="API key for planner/judge")
+    parser.add_argument("--aux_thinking", choices=["server", "on", "off"],
+                        default="server", help="Planner/judge thinking mode")
 
     # dataset
     parser.add_argument("--dataset", default="data/filtered_top_200_attacks.json")
@@ -1352,11 +1386,24 @@ EXAMPLES:
         help="Immutable raw trace root (default: <output_dir>/traces)")
     args = parser.parse_args()
 
+    if (args.aux_base_url and "deepseek" in args.aux_base_url.lower()
+            and not args.planner_judge_model.lower().startswith("deepseek-")):
+        logger.warning(
+            "Overriding incompatible planner/judge model %r with deepseek-flash for %s",
+            args.planner_judge_model, args.aux_base_url)
+        args.planner_judge_model = "deepseek-flash"
+
     # ---------- build config ----------
     CONFIG["attacker"]["base_url"] = args.attacker_url
     CONFIG["attacker"]["model"] = args.attacker_model
     CONFIG["planner"]["model"] = args.planner_judge_model
     CONFIG["judge"]["model"] = args.planner_judge_model
+    CONFIG["planner"]["base_url"] = args.aux_base_url
+    CONFIG["judge"]["base_url"] = args.aux_base_url
+    CONFIG["planner"]["api_key"] = args.aux_api_key
+    CONFIG["judge"]["api_key"] = args.aux_api_key
+    CONFIG["planner"]["thinking_mode"] = args.aux_thinking
+    CONFIG["judge"]["thinking_mode"] = args.aux_thinking
     CONFIG["planner"]["num_strategies"] = args.num_strategies
     CONFIG["attack"]["max_turns"] = args.max_turns
     CONFIG["attack"]["success_threshold"] = args.success_threshold
@@ -1400,7 +1447,7 @@ EXAMPLES:
         victim_config["thinking_mode"] = args.victim_thinking
 
     # ---------- check keys ----------
-    missing = check_keys(victim_map)
+    missing = check_keys(victim_map, args.aux_api_key)
     if missing:
         print(f"{RED}Missing API keys:{ENDC}")
         for k in missing:
@@ -1446,6 +1493,7 @@ EXAMPLES:
     print(f"  URL   : {CONFIG['attacker']['base_url']}")
     print(f"\n{CYAN}Planner/Judge:{ENDC}")
     print(f"  Model : {CONFIG['planner']['model']}")
+    print(f"  URL   : {CONFIG['planner']['base_url'] or 'https://api.openai.com/v1'}")
     print(f"\n{CYAN}Victim models:{ENDC}")
     for vname, vcfg in victim_map.items():
         extra = f" @ {vcfg['base_url']}" if vcfg.get("base_url") else ""

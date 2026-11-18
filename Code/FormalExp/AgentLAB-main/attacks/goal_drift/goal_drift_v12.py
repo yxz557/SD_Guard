@@ -754,7 +754,8 @@ class ExperimentRunner:
         # OpenAI-compatible client for attacker/judge/extractor.
         self.openai_client = OpenAI(
             api_key=config.auxiliary_api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
-            base_url=config.auxiliary_base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1")
+            base_url=config.auxiliary_base_url or os.environ.get("AUX_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1")
         StealthinessJudge.initialize(self.openai_client, config.stealthiness_model, config.verbose)
 
         self.memory = InjectionMemorySystem(config.memory_file, config.memory_size, config.verbose)
@@ -988,7 +989,11 @@ class ExperimentRunner:
 
 def main():
     p=argparse.ArgumentParser(description="Goal Drift v12 — Unified All-Victim")
-    aux_model_default=os.environ.get("AUX_MODEL")
+    aux_base_default=(os.environ.get("AUX_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+                      or ("https://api.deepseek.com" if os.environ.get("DEEPSEEK_API_KEY") else None))
+    aux_model_default=(os.environ.get("AUX_MODEL")
+                       or ("deepseek-flash" if aux_base_default and "deepseek" in aux_base_default.lower()
+                           else None))
     p.add_argument("--victim_model",type=str,default="gpt-4o")
     p.add_argument("--victim_base_url",type=str,default=None,help="vLLM server URL (None=OpenAI)")
     p.add_argument("--victim_api_key",type=str,default=None,help="API key (None=env var, 'EMPTY'=vLLM)")
@@ -1002,7 +1007,7 @@ def main():
     p.add_argument("--judge_model",type=str,default=aux_model_default or "gpt-5.1")
     p.add_argument("--extractor_model",type=str,default=aux_model_default or "gpt-5.1")
     p.add_argument("--stealthiness_model",type=str,default=aux_model_default or "gpt-5.1")
-    p.add_argument("--aux_base_url",type=str,default=os.environ.get("OPENAI_BASE_URL"),
+    p.add_argument("--aux_base_url",type=str,default=aux_base_default,
                    help="OpenAI-compatible URL for attacker/judge/extractor")
     p.add_argument("--aux_api_key",type=str,
                    default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
@@ -1021,7 +1026,7 @@ def main():
     p.add_argument("--verbose",action="store_true")
     a=p.parse_args()
 
-    if a.aux_base_url and "api.deepseek.com" in a.aux_base_url.lower():
+    if a.aux_base_url and "deepseek" in a.aux_base_url.lower():
         auxiliary_models = {
             "attacker": a.attacker_model,
             "judge": a.judge_model,
@@ -1031,11 +1036,12 @@ def main():
         invalid = {k: v for k, v in auxiliary_models.items()
                    if not v.lower().startswith("deepseek-")}
         if invalid:
-            p.error(
-                "DeepSeek auxiliary endpoint requires DeepSeek model names; "
-                f"invalid settings: {invalid}. Pass every model flag as "
-                "deepseek-flash or export AUX_MODEL=deepseek-flash."
-            )
+            print(f"{Colors.YELLOW}Overriding incompatible auxiliary models "
+                  f"{invalid} with deepseek-flash for {a.aux_base_url}{Colors.ENDC}")
+            a.attacker_model="deepseek-flash"
+            a.judge_model="deepseek-flash"
+            a.extractor_model="deepseek-flash"
+            a.stealthiness_model="deepseek-flash"
 
     if not a.aux_api_key: print("Set DEEPSEEK_API_KEY/OPENAI_API_KEY or pass --aux_api_key"); sys.exit(1)
 

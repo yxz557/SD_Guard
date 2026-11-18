@@ -1878,6 +1878,16 @@ def check_api_keys(victim_model: str, attacker_model: str,
 # MAIN
 # ==========================================
 def main():
+    aux_base_default = (
+        os.environ.get("AUX_BASE_URL")
+        or os.environ.get("OPENAI_BASE_URL")
+        or ("https://api.deepseek.com" if os.environ.get("DEEPSEEK_API_KEY") else None)
+    )
+    aux_model_default = (
+        os.environ.get("AUX_MODEL")
+        or ("deepseek-flash" if aux_base_default and "deepseek" in aux_base_default.lower()
+            else "gpt-5.1")
+    )
     parser = argparse.ArgumentParser(
         description="X-Teaming STAC Unified Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1901,9 +1911,9 @@ Examples:
                         help="Victim model to attack (default: gpt-5.1)")
     parser.add_argument("--victim_base_url", default=None,
                         help="Base URL for local models (e.g., http://localhost:8001/v1)")
-    parser.add_argument("--attacker_model", default=os.environ.get("AUX_MODEL", "gpt-5.1"),
-                        help="Model for planner and judge (default: AUX_MODEL or gpt-5.1)")
-    parser.add_argument("--aux_base_url", default=os.environ.get("OPENAI_BASE_URL"),
+    parser.add_argument("--attacker_model", default=aux_model_default,
+                        help="Model for planner and judge (auto-selects deepseek-flash for DeepSeek)")
+    parser.add_argument("--aux_base_url", default=aux_base_default,
                         help="OpenAI-compatible URL for planner/judge")
     parser.add_argument("--aux_api_key", default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
                         help="API key for the planner/judge endpoint")
@@ -1943,13 +1953,12 @@ Examples:
     
     args = parser.parse_args()
 
-    if (args.aux_base_url and "api.deepseek.com" in args.aux_base_url.lower()
+    if (args.aux_base_url and "deepseek" in args.aux_base_url.lower()
             and not args.attacker_model.lower().startswith("deepseek-")):
-        parser.error(
-            "DeepSeek auxiliary endpoint requires a DeepSeek model name; "
-            f"got --attacker_model {args.attacker_model!r}. "
-            "Pass --attacker_model deepseek-flash or export AUX_MODEL=deepseek-flash."
-        )
+        logger.warning(
+            "Overriding incompatible auxiliary model %r with deepseek-flash for %s",
+            args.attacker_model, args.aux_base_url)
+        args.attacker_model = "deepseek-flash"
     
     # Check API keys
     if not check_api_keys(args.victim_model, args.attacker_model, args.aux_api_key):

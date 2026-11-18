@@ -187,6 +187,7 @@ def get_shared_mem0(config):
                     llm_model = config.mem0_llm_model or config.attacker_model
                     api_key = config.auxiliary_api_key or config.openai_api_key
                     base_url = (config.auxiliary_base_url
+                                or os.environ.get("AUX_BASE_URL")
                                 or os.environ.get("OPENAI_BASE_URL")
                                 or "https://api.openai.com/v1")
                     mem0_config = {
@@ -441,7 +442,8 @@ class OpenAIAgent(AgentBase):
         self.is_local = cfg.get("is_local", False)
         key = (cfg.get("api_key") or os.environ.get("DEEPSEEK_API_KEY")
                or os.environ.get("OPENAI_API_KEY", "EMPTY"))
-        url = (cfg.get("base_url") or os.environ.get("OPENAI_BASE_URL")
+        url = (cfg.get("base_url") or os.environ.get("AUX_BASE_URL")
+               or os.environ.get("OPENAI_BASE_URL")
                or "https://api.openai.com/v1")
         self.client = OpenAI(api_key=key if key else "EMPTY", base_url=url)
         self.base_url = url
@@ -784,6 +786,7 @@ def auxiliary_agent_config(config: Config, model: str, temperature: float) -> Di
     return {
         "api_key": config.auxiliary_api_key or config.openai_api_key,
         "base_url": (config.auxiliary_base_url
+                     or os.environ.get("AUX_BASE_URL")
                      or os.environ.get("OPENAI_BASE_URL")
                      or "https://api.openai.com/v1"),
         "model": model,
@@ -1555,6 +1558,15 @@ class AgentLABOrchestrator:
 # MAIN
 # ============================================================================
 def main():
+    aux_base_default = (
+        os.environ.get("AUX_BASE_URL")
+        or os.environ.get("OPENAI_BASE_URL")
+        or ("https://api.deepseek.com" if os.environ.get("DEEPSEEK_API_KEY") else "")
+    )
+    aux_model_default = (
+        os.environ.get("AUX_MODEL")
+        or ("deepseek-flash" if "deepseek" in aux_base_default.lower() else "gpt-5.1")
+    )
     parser = argparse.ArgumentParser(
         description="AgentLAB Memory Injection Attack v5.0",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1590,9 +1602,9 @@ EXAMPLES:
     parser.add_argument("--google_key", default=os.environ.get("GOOGLE_API_KEY", ""))
 
     # Shared planner/judge/attacker endpoint (OpenAI-compatible)
-    parser.add_argument("--aux_model", default=os.environ.get("AUX_MODEL", ""),
+    parser.add_argument("--aux_model", default=aux_model_default,
                         help="Set every auxiliary model at once (for example deepseek-flash)")
-    parser.add_argument("--aux_base_url", default=os.environ.get("OPENAI_BASE_URL", ""),
+    parser.add_argument("--aux_base_url", default=aux_base_default,
                         help="OpenAI-compatible URL for planner/judge/attacker and Mem0 LLM")
     parser.add_argument("--aux_api_key",
                         default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY", ""),
@@ -1635,14 +1647,12 @@ EXAMPLES:
     parser.add_argument("--verbose", action="store_true", default=True)
     args = parser.parse_args()
 
-    aux_model = args.aux_model or "gpt-5.1"
-    if (args.aux_base_url and "api.deepseek.com" in args.aux_base_url.lower()
+    aux_model = args.aux_model or aux_model_default
+    if (args.aux_base_url and "deepseek" in args.aux_base_url.lower()
             and not aux_model.lower().startswith("deepseek-")):
-        parser.error(
-            "DeepSeek auxiliary endpoint requires a DeepSeek model name; "
-            f"got {aux_model!r}. Pass --aux_model deepseek-flash or "
-            "export AUX_MODEL=deepseek-flash."
-        )
+        print(f"{YELLOW}Overriding incompatible auxiliary model "
+              f"{aux_model!r} with deepseek-flash for {args.aux_base_url}{ENDC}")
+        aux_model = "deepseek-flash"
     config = Config(
         openai_api_key=args.openai_key, anthropic_api_key=args.anthropic_key,
         google_api_key=args.google_key, openai_models=args.openai_models,
