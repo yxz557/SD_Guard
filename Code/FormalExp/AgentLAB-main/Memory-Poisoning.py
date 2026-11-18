@@ -290,6 +290,11 @@ class Config:
     google_models: List[str] = field(default_factory=lambda: ["gemini-3-flash-preview"])
     local_model: str = ""
     local_url: str = "http://localhost:8001/v1"
+    local_temperature: float = 0.0
+    local_top_p: Optional[float] = None
+    local_top_k: Optional[int] = None
+    local_max_tokens: Optional[int] = None
+    local_thinking: str = "server"
 
     num_strategies: int = 3
     max_memory_words: int = 15
@@ -331,6 +336,10 @@ class OpenAIAgent(AgentBase):
         url = cfg.get("base_url", "https://api.openai.com/v1")
         self.client = OpenAI(api_key=key if key else "EMPTY", base_url=url)
         self.default_temp = cfg.get("temperature", 0)
+        self.top_p = cfg.get("top_p")
+        self.top_k = cfg.get("top_k")
+        self.max_tokens = cfg.get("max_tokens")
+        self.thinking_mode = cfg.get("thinking_mode", "server")
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2), reraise=True)
     def call_api(self, messages, temperature=None, max_tokens=4000):
@@ -338,10 +347,23 @@ class OpenAIAgent(AgentBase):
         if self.is_local:
             t = max(t, 0.1)
         kw = {"model": self.model, "messages": messages, "temperature": t}
+        if self.top_p is not None:
+            kw["top_p"] = self.top_p
         if self.is_local:
-            kw["max_tokens"] = max_tokens
+            extra_body = {}
+            if self.top_k is not None:
+                extra_body["top_k"] = self.top_k
+            if self.thinking_mode in ("on", "off"):
+                extra_body["chat_template_kwargs"] = {
+                    "enable_thinking": self.thinking_mode == "on"
+                }
+            if extra_body:
+                kw["extra_body"] = extra_body
+        token_budget = self.max_tokens or max_tokens
+        if self.is_local:
+            kw["max_tokens"] = token_budget
         else:
-            kw["max_completion_tokens"] = max_tokens
+            kw["max_completion_tokens"] = token_budget
         try:
             r = self.client.chat.completions.create(**kw)
             c = r.choices[0].message.content or ""
@@ -356,10 +378,23 @@ class OpenAIAgent(AgentBase):
         if self.is_local:
             t = max(t, 0.1)
         kw = {"model": self.model, "messages": messages, "temperature": t}
+        if self.top_p is not None:
+            kw["top_p"] = self.top_p
         if self.is_local:
-            kw["max_tokens"] = 2000
+            extra_body = {}
+            if self.top_k is not None:
+                extra_body["top_k"] = self.top_k
+            if self.thinking_mode in ("on", "off"):
+                extra_body["chat_template_kwargs"] = {
+                    "enable_thinking": self.thinking_mode == "on"
+                }
+            if extra_body:
+                kw["extra_body"] = extra_body
+        token_budget = self.max_tokens or 2000
+        if self.is_local:
+            kw["max_tokens"] = token_budget
         else:
-            kw["max_completion_tokens"] = 2000
+            kw["max_completion_tokens"] = token_budget
         if tools:
             try:
                 kw["tools"] = tools
@@ -919,6 +954,11 @@ class AttackExecutor:
                 target={
                     "model_id": getattr(self.target, "model", None),
                     "provider": self.provider,
+                    "temperature": getattr(self.target, "default_temp", None),
+                    "top_p": getattr(self.target, "top_p", None),
+                    "top_k": getattr(self.target, "top_k", None),
+                    "max_tokens": getattr(self.target, "max_tokens", None),
+                    "thinking_mode": getattr(self.target, "thinking_mode", "server"),
                 },
                 environment={
                     "definitions": sample.get("environments", []),
@@ -1100,6 +1140,11 @@ Return JSON: {{"evaluation": "EXECUTED/PARTIAL/REFUSED"}}"""
                 target={
                     "model_id": getattr(self.agent, "model", None),
                     "provider": self.provider,
+                    "temperature": getattr(self.agent, "default_temp", None),
+                    "top_p": getattr(self.agent, "top_p", None),
+                    "top_k": getattr(self.agent, "top_k", None),
+                    "max_tokens": getattr(self.agent, "max_tokens", None),
+                    "thinking_mode": getattr(self.agent, "thinking_mode", "server"),
                 },
                 environment={
                     "definitions": sample.get("environments", []),
@@ -1151,7 +1196,11 @@ class SingleModelRunner:
         elif self.provider == "google":
             return {"api_key": self.config.google_api_key, "model": self.model_id, "temperature": 1.0}
         elif self.provider == "local":
-            return {"api_key": "EMPTY", "base_url": self.config.local_url, "model": self.model_id, "temperature": 0, "is_local": True}
+            return {"api_key": "EMPTY", "base_url": self.config.local_url,
+                "model": self.model_id, "temperature": self.config.local_temperature,
+                "top_p": self.config.local_top_p, "top_k": self.config.local_top_k,
+                "max_tokens": self.config.local_max_tokens,
+                "thinking_mode": self.config.local_thinking, "is_local": True}
         return {}
 
     def run(self, samples, target_n, start_idx=0):
@@ -1376,8 +1425,17 @@ EXAMPLES:
     parser.add_argument("--google_models", nargs='+', default=["gemini-3-flash-preview"])
     parser.add_argument("--local_model", default="")
     parser.add_argument("--local_url", default="http://localhost:8001/v1")
+    parser.add_argument("--local_temperature", type=float, default=0.0)
+    parser.add_argument("--local_top_p", type=float, default=None)
+    parser.add_argument("--local_top_k", type=int, default=None)
+    parser.add_argument("--local_max_tokens", type=int, default=None)
+    parser.add_argument("--local_thinking", choices=["server", "on", "off"],
+                        default="server",
+                        help="Qwen thinking mode; on/off is sent per request")
 
     parser.add_argument("--num_strategies", type=int, default=3)
+    parser.add_argument("--output_dir", default="./agentlab_results",
+                        help="Result directory prefix (timestamp is appended)")
     parser.add_argument("--trace_dir", default="",
                         help="Raw trace root (default: <run output>/traces)")
     parser.add_argument("--verbose", action="store_true", default=True)
@@ -1388,7 +1446,11 @@ EXAMPLES:
         google_api_key=args.google_key, openai_models=args.openai_models,
         anthropic_models=args.anthropic_models, google_models=args.google_models,
         local_model=args.local_model, local_url=args.local_url,
-        num_strategies=args.num_strategies, trace_dir=args.trace_dir,
+        local_temperature=args.local_temperature, local_top_p=args.local_top_p,
+        local_top_k=args.local_top_k, local_max_tokens=args.local_max_tokens,
+        local_thinking=args.local_thinking,
+        num_strategies=args.num_strategies, output_dir=args.output_dir,
+        trace_dir=args.trace_dir,
         verbose=args.verbose)
 
     # Validate keys

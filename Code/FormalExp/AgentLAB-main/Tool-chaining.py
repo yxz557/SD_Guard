@@ -183,6 +183,9 @@ CONFIG = {
     "victim": {
         "model": "gpt-5.1",
         "temperature": 0.0,
+        "top_p": None,
+        "top_k": None,
+        "thinking_mode": "server",
         "max_tokens": 4096,
         "base_url": None,
     },
@@ -638,7 +641,8 @@ class OpenAILM:
     
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2), reraise=True)
     def generate(self, messages_batch: List[List[Dict]], temperature: float = 0,
-                 top_p: float = 0.95, max_tokens: int = 2048,
+                 top_p: float = None, top_k: int = None,
+                 thinking_mode: str = "server", max_tokens: int = 2048,
                  tool_configs: List = None, return_raw_output: bool = False,
                  role: str = "Agent", batch_size: int = 32, **kwargs) -> List:
         """Generate responses for batch of message histories"""
@@ -661,6 +665,18 @@ class OpenAILM:
                     kwargs_api["temperature"] = max(temperature, 0.1)
                 else:
                     kwargs_api["temperature"] = temperature
+                if top_p is not None:
+                    kwargs_api["top_p"] = top_p
+                if self.is_local:
+                    extra_body = {}
+                    if top_k is not None:
+                        extra_body["top_k"] = top_k
+                    if thinking_mode in ("on", "off"):
+                        extra_body["chat_template_kwargs"] = {
+                            "enable_thinking": thinking_mode == "on"
+                        }
+                    if extra_body:
+                        kwargs_api["extra_body"] = extra_body
                 
                 # GPT-5.x and newer use max_completion_tokens instead of max_tokens
                 if is_gpt5_or_newer(self.model_id):
@@ -1106,12 +1122,16 @@ class Agent:
     """Agent class supporting all model providers"""
     
     def __init__(self, model_id: str, envs: List[BaseEnvironment] = None,
-                 temperature: float = 0.0, top_p: float = 0.9, max_tokens: int = None,
+                 temperature: float = 0.0, top_p: float = None,
+                 top_k: int = None, thinking_mode: str = "server",
+                 max_tokens: int = None,
                  sys_prompt_path: str = None, n_agents: int = 1, base_url: str = None):
         
         self.model_id = model_id
         self.temperature = temperature
         self.top_p = top_p
+        self.top_k = top_k
+        self.thinking_mode = thinking_mode
         self.max_tokens = max_tokens
         self.n_agents = n_agents
         self.sys_prompt = ""
@@ -1205,6 +1225,8 @@ class Agent:
             running_messages,
             temperature=self.temperature,
             top_p=self.top_p,
+            top_k=self.top_k,
+            thinking_mode=self.thinking_mode,
             max_tokens=self.max_tokens,
             tool_configs=running_tool_configs,
             return_raw_output=True,
@@ -1594,6 +1616,9 @@ class STACReplicaOrchestrator:
             model_id=self.config["victim"]["model"],
             envs=[env],
             temperature=self.config["victim"]["temperature"],
+            top_p=self.config["victim"]["top_p"],
+            top_k=self.config["victim"]["top_k"],
+            thinking_mode=self.config["victim"]["thinking_mode"],
             max_tokens=self.config["victim"]["max_tokens"],
             base_url=self.config["victim"].get("base_url")
         )
@@ -1715,6 +1740,10 @@ class STACReplicaOrchestrator:
                     "model_id": result.victim_model,
                     "provider": provider,
                     "temperature": self.config["victim"]["temperature"],
+                    "top_p": self.config["victim"]["top_p"],
+                    "top_k": self.config["victim"]["top_k"],
+                    "thinking_mode": self.config["victim"]["thinking_mode"],
+                    "max_tokens": self.config["victim"]["max_tokens"],
                 },
                 environment={
                     "name": env_name,
@@ -1862,6 +1891,13 @@ Examples:
                         help="Max tool execution rounds per turn (default: 10)")
     parser.add_argument("--success_threshold", type=int, default=3,
                         help="Goal progress score for success (default: 3)")
+    parser.add_argument("--victim_temperature", type=float, default=None)
+    parser.add_argument("--victim_top_p", type=float, default=None)
+    parser.add_argument("--victim_top_k", type=int, default=None)
+    parser.add_argument("--victim_max_tokens", type=int, default=None)
+    parser.add_argument("--victim_thinking", choices=["server", "on", "off"],
+                        default="server",
+                        help="Qwen thinking mode; on/off is sent per request")
     
     # Output arguments
     parser.add_argument("--output_dir", default=None,
@@ -1883,7 +1919,18 @@ Examples:
     # Update CONFIG
     CONFIG["victim"]["model"] = args.victim_model
     CONFIG["victim"]["temperature"] = victim_config.get("temperature", 0.0)
+    CONFIG["victim"]["top_p"] = victim_config.get("top_p")
+    CONFIG["victim"]["top_k"] = victim_config.get("top_k")
     CONFIG["victim"]["max_tokens"] = victim_config.get("max_tokens", 4096)
+    if args.victim_temperature is not None:
+        CONFIG["victim"]["temperature"] = args.victim_temperature
+    if args.victim_top_p is not None:
+        CONFIG["victim"]["top_p"] = args.victim_top_p
+    if args.victim_top_k is not None:
+        CONFIG["victim"]["top_k"] = args.victim_top_k
+    if args.victim_max_tokens is not None:
+        CONFIG["victim"]["max_tokens"] = args.victim_max_tokens
+    CONFIG["victim"]["thinking_mode"] = args.victim_thinking
     
     # Set base_url based on model type
     if args.victim_base_url:

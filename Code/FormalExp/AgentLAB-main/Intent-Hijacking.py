@@ -438,6 +438,10 @@ class VictimModel:
         self.model = config["model"]
         self.provider = config.get("provider") or detect_provider(self.model)
         self.temperature = config.get("temperature", 0)
+        self.top_p = config.get("top_p")
+        self.top_k = config.get("top_k")
+        self.max_tokens = config.get("max_tokens", 4096)
+        self.thinking_mode = config.get("thinking_mode", "server")
         self.conversation_history: List[Dict] = []
         self.call_records: List[Dict] = []
         self._last_response_details: Dict[str, Any] = {}
@@ -533,10 +537,22 @@ class VictimModel:
         kwargs: Dict[str, Any] = {
             "model": self.model, "messages": msgs, "temperature": self.temperature
         }
+        if self.top_p is not None:
+            kwargs["top_p"] = self.top_p
+        if self.provider == "local":
+            extra_body: Dict[str, Any] = {}
+            if self.top_k is not None:
+                extra_body["top_k"] = self.top_k
+            if self.thinking_mode in ("on", "off"):
+                extra_body["chat_template_kwargs"] = {
+                    "enable_thinking": self.thinking_mode == "on"
+                }
+            if extra_body:
+                kwargs["extra_body"] = extra_body
         if is_gpt5_or_newer(self.model):
-            kwargs["max_completion_tokens"] = 4096
+            kwargs["max_completion_tokens"] = self.max_tokens
         else:
-            kwargs["max_tokens"] = 4096
+            kwargs["max_tokens"] = self.max_tokens
         # For Gemini through OpenAI-compat (not used here but kept for safety)
         resp = self.oai_client.chat.completions.create(**kwargs)
         message = resp.choices[0].message
@@ -1081,6 +1097,10 @@ class AgentLABOrchestrator:
                     "model_id": victim.model,
                     "provider": victim.provider,
                     "temperature": victim.temperature,
+                    "top_p": victim.top_p,
+                    "top_k": victim.top_k,
+                    "max_tokens": victim.max_tokens,
+                    "thinking_mode": victim.thinking_mode,
                 },
                 trajectory={
                     "messages": trace_messages,
@@ -1315,6 +1335,13 @@ EXAMPLES:
     parser.add_argument("--max_turns", type=int, default=7)
     parser.add_argument("--num_strategies", type=int, default=2)
     parser.add_argument("--success_threshold", type=int, default=4)
+    parser.add_argument("--victim_temperature", type=float, default=0.0)
+    parser.add_argument("--victim_top_p", type=float, default=None)
+    parser.add_argument("--victim_top_k", type=int, default=None)
+    parser.add_argument("--victim_max_tokens", type=int, default=4096)
+    parser.add_argument("--victim_thinking", choices=["server", "on", "off"],
+                        default="server",
+                        help="Qwen thinking mode; on/off is sent per request")
     parser.add_argument("--no_textgrad", action="store_true")
     parser.add_argument("--sequential", action="store_true")
 
@@ -1364,6 +1391,13 @@ EXAMPLES:
         name = list(victim_map.keys())[0]
         victim_map[name]["base_url"] = args.victim_url
         victim_map[name]["provider"] = "local"
+
+    for victim_config in victim_map.values():
+        victim_config["temperature"] = args.victim_temperature
+        victim_config["top_p"] = args.victim_top_p
+        victim_config["top_k"] = args.victim_top_k
+        victim_config["max_tokens"] = args.victim_max_tokens
+        victim_config["thinking_mode"] = args.victim_thinking
 
     # ---------- check keys ----------
     missing = check_keys(victim_map)

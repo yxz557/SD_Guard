@@ -98,6 +98,10 @@ class Config:
     victim_base_url: Optional[str] = None     # None = use default OpenAI; set for vLLM
     victim_api_key: Optional[str] = None       # None = use OPENAI_API_KEY; "EMPTY" for vLLM
     victim_temperature: float = 0.0
+    victim_top_p: Optional[float] = None
+    victim_top_k: Optional[int] = None
+    victim_max_tokens: Optional[int] = None
+    victim_thinking: str = "server"
 
     # Attacker/Judge/Extractor (always OpenAI)
     attacker_model: str = "gpt-5.2"
@@ -381,7 +385,23 @@ Respond with brief reasoning, then: ACTION: click[...] or search[...]"""
         request_messages=[{"role":"system","content":self.SYSTEM_PROMPT},*[dict(m) for m in self.history[-6:]]]
         timeout = 120 if self.config.is_local_victim else 60
         try:
-            r=self.client.chat.completions.create(model=self.model,messages=request_messages,temperature=self.temperature,timeout=timeout)
+            request_kwargs={"model":self.model,"messages":request_messages,
+                            "temperature":self.temperature,"timeout":timeout}
+            if self.config.victim_max_tokens is not None:
+                request_kwargs["max_tokens"]=self.config.victim_max_tokens
+            if self.config.victim_top_p is not None:
+                request_kwargs["top_p"]=self.config.victim_top_p
+            if self.config.is_local_victim:
+                extra_body={}
+                if self.config.victim_top_k is not None:
+                    extra_body["top_k"]=self.config.victim_top_k
+                if self.config.victim_thinking in ("on","off"):
+                    extra_body["chat_template_kwargs"]={
+                        "enable_thinking":self.config.victim_thinking=="on"
+                    }
+                if extra_body:
+                    request_kwargs["extra_body"]=extra_body
+            r=self.client.chat.completions.create(**request_kwargs)
             response_message=assistant_message_dict(r.choices[0].message)
             reply=response_message.get("content") or ""
             self.history.append({"role":"assistant","content":reply})
@@ -866,6 +886,10 @@ class ExperimentRunner:
                     "provider": "openai_compatible",
                     "base_url": self.config.victim_base_url,
                     "temperature": self.config.victim_temperature,
+                    "top_p": self.config.victim_top_p,
+                    "top_k": self.config.victim_top_k,
+                    "max_tokens": self.config.victim_max_tokens,
+                    "thinking_mode": self.config.victim_thinking,
                 },
                 environment={
                     "name": "WebShop",
@@ -940,6 +964,11 @@ def main():
     p.add_argument("--victim_base_url",type=str,default=None,help="vLLM server URL (None=OpenAI)")
     p.add_argument("--victim_api_key",type=str,default=None,help="API key (None=env var, 'EMPTY'=vLLM)")
     p.add_argument("--victim_temperature",type=float,default=0.0)
+    p.add_argument("--victim_top_p",type=float,default=None)
+    p.add_argument("--victim_top_k",type=int,default=None)
+    p.add_argument("--victim_max_tokens",type=int,default=None)
+    p.add_argument("--victim_thinking",choices=["server","on","off"],default="server",
+                   help="Qwen thinking mode; on/off is sent per request")
     p.add_argument("--attacker_model",type=str,default="gpt-5.2")
     p.add_argument("--judge_model",type=str,default="gpt-5.1")
     p.add_argument("--num_tasks",type=int,default=100)
@@ -959,7 +988,9 @@ def main():
     trace_run_id=f"goal_drift_v12_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     trace_dir=a.trace_dir or str(Path("goal_drift_traces")/trace_run_id)
     config=Config(victim_model=a.victim_model,victim_base_url=a.victim_base_url,victim_api_key=a.victim_api_key,
-                  victim_temperature=a.victim_temperature,attacker_model=a.attacker_model,judge_model=a.judge_model,
+                  victim_temperature=a.victim_temperature,victim_top_p=a.victim_top_p,victim_top_k=a.victim_top_k,
+                  victim_max_tokens=a.victim_max_tokens,victim_thinking=a.victim_thinking,
+                  attacker_model=a.attacker_model,judge_model=a.judge_model,
                   num_tasks=a.num_tasks,num_seeds=a.num_seeds,output_file=a.output,trace_dir=trace_dir,trace_run_id=trace_run_id,memory_file=a.memory_file,
                   attack_strategy=a.strategy,optimize_iterations=a.optimize_iterations,
                   injection_count_item=a.injection_count_item,success_weight_multiplier=a.success_weight,verbose=a.verbose)

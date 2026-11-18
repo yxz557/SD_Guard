@@ -1,7 +1,7 @@
-# AgentLAB raw trace collection
+# AgentLAB Qwen3-8B raw-trace runbook
 
-The four non-AgentDojo runners now write the same immutable artifact envelope
-used by the Task Injection export:
+The four non-AgentDojo runners write the same immutable artifact envelope used
+by the Task Injection export:
 
 ```text
 <trace-dir>/
@@ -10,91 +10,411 @@ used by the Task Injection export:
     raw_trace.sha256
 ```
 
-The schema is `sd_guard.raw_trace.v1`. These files intentionally contain raw
-runtime facts and `label_status: pending`; episode and event labels can be
-derived later without rerunning the victim model.
+The schema is `sd_guard.raw_trace.v1`. Raw artifacts contain runtime facts and
+`label_status: pending`; episode/event labels can be derived later without
+rerunning the victim model.
 
-The commands below assume an OpenAI-compatible vLLM server for
-`Qwen/Qwen3-8B` at `http://localhost:8001/v1`. Adjust the model ID and URL to
-match the server used for Task Injection.
+This runbook starts with Qwen3-8B **non-thinking** mode. It uses the Qwen3
+non-thinking sampling condition from the reasoning-variance paper:
+`temperature=0.7`, `top_p=0.8`, `top_k=20`, and a 768-token victim budget.
+This is a controlled condition, not deterministic decoding.
 
-## Intent Hijacking
+## 1. Start the shared Qwen3-8B victim server
 
-```powershell
-python .\Intent-Hijacking.py `
-  --victim Qwen/Qwen3-8B `
-  --victim_url http://localhost:8001/v1 `
-  --dataset .\data\filtered_top_200_attacks.json `
-  --num_samples 10 `
-  --sequential `
-  --output_dir .\runs\intent-smoke `
-  --trace_dir .\runs\intent-smoke\traces
+Run in terminal A. Change the conda environment/model path if necessary.
+
+Qwen's `qwen3` reasoning parser supports `enable_thinking=false` together with
+reasoning parsing in vLLM 0.9.0 and later. Check the installed version first:
+
+```bash
+python -c "import vllm; print(vllm.__version__)"
+vllm serve --help | grep default-chat-template-kwargs
 ```
 
-Saved victim data includes the system prompt, every attacker/victim turn,
-unmodified local-model content, and `reasoning_content` when vLLM exposes it.
+If the second command finds no such option, remove
+`--default-chat-template-kwargs` from the server command. The four runner
+commands still enforce non-thinking per request through
+`--victim_thinking off` / `--local_thinking off`; keep vLLM at 0.9.0 or later
+for the Qwen3 reasoning-parser compatibility fix.
 
-## Tool Chaining
+```bash
+source /root/miniconda3/etc/profile.d/conda.sh
+conda activate /root/autodl-tmp/conda-envs/sd4-vllm-cu130
 
-```powershell
-python .\Tool-chaining.py `
-  --victim_model Qwen/Qwen3-8B `
-  --victim_base_url http://localhost:8001/v1 `
-  --dataset .\data\filtered_top_200_attacks.json `
-  --num_samples 10 `
-  --output_dir .\runs\tool-smoke `
-  --trace_dir .\runs\tool-smoke\traces
+export SD_ROOT=/root/autodl-tmp/Code/SD_Guard
+export AL_ROOT="$SD_ROOT/Code/FormalExp/AgentLAB-main"
+export RUN_ROOT="$SD_ROOT/results/agentlab/qwen3_8b_nothink_v1"
+export VICTIM_MODEL_PATH=/root/autodl-tmp/models/Qwen3-8B
+export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
+mkdir -p "$RUN_ROOT"
+
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
+CUDA_VISIBLE_DEVICES=0 vllm serve "$VICTIM_MODEL_PATH" \
+  --served-model-name "$VICTIM_MODEL_NAME" \
+  --host 127.0.0.1 \
+  --port 8001 \
+  --tensor-parallel-size 1 \
+  --dtype auto \
+  --gpu-memory-utilization 0.45 \
+  --max-model-len 40960 \
+  --max-num-seqs 20 \
+  --trust-remote-code \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes \
+  --reasoning-parser qwen3 \
+  --generation-config vllm \
+  --override-generation-config '{"temperature":0.7,"top_p":0.8,"top_k":20}' \
+  --default-chat-template-kwargs '{"enable_thinking":false}' \
+  2>&1 | tee "$RUN_ROOT/vllm_victim.log"
 ```
 
-Saved victim data includes the complete conversation, tool schemas, proposed
-tool calls, tool results, executed tools, and planner/judge records.
+The `0.45` GPU fraction leaves room for the Intent Hijacking attacker server.
+If Intent Hijacking is not being run concurrently, the victim can be restarted
+with a larger fraction. Do not let the fractions of two vLLM processes on one
+GPU approach more than the available memory.
 
-## Objective Drifting
+Verify both health and non-thinking output:
 
-Use the v12 script directly so the 8B model ID is not replaced by a top-level
-victim preset:
+```bash
+curl -f http://127.0.0.1:8001/health
 
-```powershell
-python .\attacks\goal_drift\goal_drift_v12.py `
-  --victim_model Qwen/Qwen3-8B `
-  --victim_base_url http://localhost:8001/v1 `
-  --victim_api_key EMPTY `
-  --num_tasks 10 `
-  --num_seeds 1 `
-  --output .\runs\objective-smoke\results.json `
-  --trace_dir .\runs\objective-smoke\traces `
-  --verbose
+curl -s http://127.0.0.1:8001/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"Qwen/Qwen3-8B","messages":[{"role":"user","content":"Answer only: OK"}],"temperature":0.7,"top_p":0.8,"top_k":20,"max_tokens":32}'
 ```
 
-Saved victim data includes each exact request window and raw response, original
-and perturbed WebShop observations, injections, parsed actions, next
-observations, prices, and termination state. The trace records whether the
-real WebShop bridge or the fallback simulator was used.
+The response should not contain a `<think>...</think>` block and its
+`reasoning_content` should be absent, null, or empty. `--reasoning-parser qwen3`
+only parses reasoning when it exists; it does not turn thinking on.
 
-## Memory Poisoning
+## 2. Start the Intent Hijacking attacker server
 
-```powershell
-python .\Memory-Poisoning.py `
-  --targets local `
-  --local_model Qwen/Qwen3-8B `
-  --local_url http://localhost:8001/v1 `
-  --data_path .\data\all_refused_combined_200.json `
-  --target_samples 10 `
-  --sequential `
-  --trace_dir .\runs\memory-smoke\traces
+Only Intent Hijacking needs this second local vLLM process. Run it in terminal
+B while the victim server remains running.
+
+```bash
+source /root/miniconda3/etc/profile.d/conda.sh
+conda activate /root/autodl-tmp/conda-envs/sd4-vllm-cu130
+
+export SD_ROOT=/root/autodl-tmp/Code/SD_Guard
+export RUN_ROOT="$SD_ROOT/results/agentlab/qwen3_8b_nothink_v1"
+export ATTACKER_MODEL_PATH=/root/autodl-tmp/models/Huihui-Qwen3-14B-abliterated-v2
+export ATTACKER_MODEL_NAME=huihui-ai/Huihui-Qwen3-14B-abliterated-v2
+
+CUDA_VISIBLE_DEVICES=0 vllm serve "$ATTACKER_MODEL_PATH" \
+  --served-model-name "$ATTACKER_MODEL_NAME" \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --tensor-parallel-size 1 \
+  --dtype auto \
+  --gpu-memory-utilization 0.45 \
+  --max-model-len 32768 \
+  --max-num-seqs 8 \
+  --trust-remote-code \
+  --generation-config vllm \
+  --override-generation-config '{"temperature":0.3,"top_p":0.95,"top_k":20}' \
+  --default-chat-template-kwargs '{"enable_thinking":false}' \
+  2>&1 | tee "$RUN_ROOT/vllm_intent_attacker.log"
 ```
 
-Both baseline and every poisoning attempt are saved. Each attack trace contains
-the written poison memories, actually retrieved memories, final system prompt,
-tool schemas, complete message/tool trajectory, and final response.
+## 3. Prepare the runner terminal
 
-## Recommended smoke test
+Run the following in terminal C. The four attacks use remote planner/judge or
+attacker models in addition to the local Qwen victim, so a working
+OpenAI-compatible API key is still required.
 
-Start with one or two samples in every track. For each trace, verify that:
+```bash
+source /root/miniconda3/etc/profile.d/conda.sh
+conda activate /root/autodl-tmp/conda-envs/sd4-vllm-cu130
 
-1. `target.model_id` is the intended Qwen3-8B endpoint;
-2. `trajectory.messages` contains the complete victim interaction;
-3. track-specific observations, tool results, or retrieved memories are present;
-4. `raw_trace.sha256` matches the JSON file;
-5. Objective Drifting reports the intended WebShop backend.
+export OPENAI_API_KEY='YOUR_KEY'
+# If the planner/judge API is not api.openai.com, also set its compatible URL:
+# export OPENAI_BASE_URL='https://YOUR_ENDPOINT/v1'
 
+export SD_ROOT=/root/autodl-tmp/Code/SD_Guard
+export AL_ROOT="$SD_ROOT/Code/FormalExp/AgentLAB-main"
+export RUN_ROOT="$SD_ROOT/results/agentlab/qwen3_8b_nothink_v1"
+export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
+mkdir -p "$RUN_ROOT"
+cd "$AL_ROOT"
+```
+
+## 4. Smoke-test commands
+
+Run these first. Each command should finish and write `raw_trace.json` plus its
+checksum before a full campaign is started.
+
+### Intent Hijacking smoke test
+
+```bash
+mkdir -p "$RUN_ROOT/intent_hijacking_smoke"
+python Intent-Hijacking.py \
+  --victim "$VICTIM_MODEL_NAME" \
+  --victim_url http://127.0.0.1:8001/v1 \
+  --victim_temperature 0.7 \
+  --victim_top_p 0.8 \
+  --victim_top_k 20 \
+  --victim_max_tokens 768 \
+  --victim_thinking off \
+  --attacker_url http://127.0.0.1:8000/v1 \
+  --attacker_model huihui-ai/Huihui-Qwen3-14B-abliterated-v2 \
+  --planner_judge_model gpt-5.1 \
+  --dataset data/filtered_top_200_attacks.json \
+  --num_samples 2 \
+  --seed 20261118 \
+  --max_turns 7 \
+  --num_strategies 2 \
+  --success_threshold 4 \
+  --sequential \
+  --no_textgrad \
+  --output_dir "$RUN_ROOT/intent_hijacking_smoke" \
+  --trace_dir "$RUN_ROOT/intent_hijacking_smoke/traces" \
+  2>&1 | tee "$RUN_ROOT/intent_hijacking_smoke/run.log"
+```
+
+### Tool Chaining smoke test
+
+```bash
+mkdir -p "$RUN_ROOT/tool_chaining_smoke"
+python Tool-chaining.py \
+  --victim_model "$VICTIM_MODEL_NAME" \
+  --victim_base_url http://127.0.0.1:8001/v1 \
+  --victim_temperature 0.7 \
+  --victim_top_p 0.8 \
+  --victim_top_k 20 \
+  --victim_max_tokens 768 \
+  --victim_thinking off \
+  --attacker_model gpt-5.1 \
+  --dataset data/filtered_top_200_attacks.json \
+  --num_samples 2 \
+  --seed 20261118 \
+  --max_turns 10 \
+  --max_agent_rounds 10 \
+  --success_threshold 3 \
+  --output_dir "$RUN_ROOT/tool_chaining_smoke" \
+  --trace_dir "$RUN_ROOT/tool_chaining_smoke/traces" \
+  2>&1 | tee "$RUN_ROOT/tool_chaining_smoke/run.log"
+```
+
+The startup log must say `SHADE_Arena environment loaded successfully.` If it
+says `Using mock environment instead.`, do not use that run as formal data.
+
+### Objective Drifting smoke test
+
+Prepare and verify the WebShop environment once:
+
+```bash
+python Objective-Drifting.py --setup-only
+python Objective-Drifting.py --check-env
+```
+
+Then run the v12 implementation directly:
+
+```bash
+mkdir -p "$RUN_ROOT/objective_drifting_smoke"
+python attacks/goal_drift/goal_drift_v12.py \
+  --victim_model "$VICTIM_MODEL_NAME" \
+  --victim_base_url http://127.0.0.1:8001/v1 \
+  --victim_api_key EMPTY \
+  --victim_temperature 0.7 \
+  --victim_top_p 0.8 \
+  --victim_top_k 20 \
+  --victim_max_tokens 768 \
+  --victim_thinking off \
+  --attacker_model gpt-5.2 \
+  --judge_model gpt-5.1 \
+  --num_tasks 2 \
+  --num_seeds 1 \
+  --strategy optimized \
+  --optimize_iterations 1 \
+  --output "$RUN_ROOT/objective_drifting_smoke/results.json" \
+  --trace_dir "$RUN_ROOT/objective_drifting_smoke/traces" \
+  --memory_file "$RUN_ROOT/objective_drifting_smoke/injection_memory.json" \
+  --verbose \
+  2>&1 | tee "$RUN_ROOT/objective_drifting_smoke/run.log"
+```
+
+Formal data must use `WebShopSubprocessClient`. If the log or trace reports the
+standalone fallback simulator, fix WebShop before running the full campaign.
+
+### Memory Poisoning smoke test
+
+Verify the two critical integrations first:
+
+```bash
+python -c "import mem0; print('mem0 ok')"
+python -c "import sys; sys.path.insert(0, './environments'); from EnvManager import EnvManager; print('EnvManager ok')"
+```
+
+Then run:
+
+```bash
+mkdir -p "$RUN_ROOT/memory_poisoning_smoke"
+python Memory-Poisoning.py \
+  --targets local \
+  --local_model "$VICTIM_MODEL_NAME" \
+  --local_url http://127.0.0.1:8001/v1 \
+  --local_temperature 0.7 \
+  --local_top_p 0.8 \
+  --local_top_k 20 \
+  --local_max_tokens 768 \
+  --local_thinking off \
+  --data_path data/all_refused_combined_200.json \
+  --target_samples 2 \
+  --start_idx 0 \
+  --num_strategies 3 \
+  --sequential \
+  --output_dir "$RUN_ROOT/memory_poisoning_smoke/results" \
+  --trace_dir "$RUN_ROOT/memory_poisoning_smoke/traces" \
+  2>&1 | tee "$RUN_ROOT/memory_poisoning_smoke/run.log"
+```
+
+The log must contain both `EnvManager loaded from ./environments` and
+`Mem0 initialized`. A fallback run without either component is not equivalent
+to the intended Memory Poisoning task.
+
+## 5. Full commands
+
+Run these only after the corresponding smoke test passes. They use new output
+directories and do not overwrite the smoke artifacts.
+
+### Intent Hijacking full run
+
+```bash
+mkdir -p "$RUN_ROOT/intent_hijacking"
+python Intent-Hijacking.py \
+  --victim "$VICTIM_MODEL_NAME" \
+  --victim_url http://127.0.0.1:8001/v1 \
+  --victim_temperature 0.7 \
+  --victim_top_p 0.8 \
+  --victim_top_k 20 \
+  --victim_max_tokens 768 \
+  --victim_thinking off \
+  --attacker_url http://127.0.0.1:8000/v1 \
+  --attacker_model huihui-ai/Huihui-Qwen3-14B-abliterated-v2 \
+  --planner_judge_model gpt-5.1 \
+  --dataset data/filtered_top_200_attacks.json \
+  --num_samples 200 \
+  --seed 20261118 \
+  --max_turns 7 \
+  --num_strategies 2 \
+  --success_threshold 4 \
+  --sequential \
+  --output_dir "$RUN_ROOT/intent_hijacking" \
+  --trace_dir "$RUN_ROOT/intent_hijacking/traces" \
+  2>&1 | tee "$RUN_ROOT/intent_hijacking/run.log"
+```
+
+### Tool Chaining full run
+
+```bash
+mkdir -p "$RUN_ROOT/tool_chaining"
+python Tool-chaining.py \
+  --victim_model "$VICTIM_MODEL_NAME" \
+  --victim_base_url http://127.0.0.1:8001/v1 \
+  --victim_temperature 0.7 \
+  --victim_top_p 0.8 \
+  --victim_top_k 20 \
+  --victim_max_tokens 768 \
+  --victim_thinking off \
+  --attacker_model gpt-5.1 \
+  --dataset data/filtered_top_200_attacks.json \
+  --num_samples 200 \
+  --seed 20261118 \
+  --max_turns 10 \
+  --max_agent_rounds 10 \
+  --success_threshold 3 \
+  --output_dir "$RUN_ROOT/tool_chaining" \
+  --trace_dir "$RUN_ROOT/tool_chaining/traces" \
+  2>&1 | tee "$RUN_ROOT/tool_chaining/run.log"
+```
+
+### Objective Drifting full run
+
+```bash
+mkdir -p "$RUN_ROOT/objective_drifting"
+python attacks/goal_drift/goal_drift_v12.py \
+  --victim_model "$VICTIM_MODEL_NAME" \
+  --victim_base_url http://127.0.0.1:8001/v1 \
+  --victim_api_key EMPTY \
+  --victim_temperature 0.7 \
+  --victim_top_p 0.8 \
+  --victim_top_k 20 \
+  --victim_max_tokens 768 \
+  --victim_thinking off \
+  --attacker_model gpt-5.2 \
+  --judge_model gpt-5.1 \
+  --num_tasks 100 \
+  --num_seeds 1 \
+  --strategy optimized \
+  --optimize_iterations 5 \
+  --output "$RUN_ROOT/objective_drifting/results.json" \
+  --trace_dir "$RUN_ROOT/objective_drifting/traces" \
+  --memory_file "$RUN_ROOT/objective_drifting/injection_memory.json" \
+  --verbose \
+  2>&1 | tee "$RUN_ROOT/objective_drifting/run.log"
+```
+
+### Memory Poisoning full run
+
+```bash
+mkdir -p "$RUN_ROOT/memory_poisoning"
+python Memory-Poisoning.py \
+  --targets local \
+  --local_model "$VICTIM_MODEL_NAME" \
+  --local_url http://127.0.0.1:8001/v1 \
+  --local_temperature 0.7 \
+  --local_top_p 0.8 \
+  --local_top_k 20 \
+  --local_max_tokens 768 \
+  --local_thinking off \
+  --data_path data/all_refused_combined_200.json \
+  --target_samples 100 \
+  --start_idx 0 \
+  --num_strategies 3 \
+  --sequential \
+  --output_dir "$RUN_ROOT/memory_poisoning/results" \
+  --trace_dir "$RUN_ROOT/memory_poisoning/traces" \
+  2>&1 | tee "$RUN_ROOT/memory_poisoning/run.log"
+```
+
+## 6. Artifact checks
+
+Count the generated samples:
+
+```bash
+find "$RUN_ROOT" -path '*/raw_trace.json' | wc -l
+```
+
+Verify every checksum:
+
+```bash
+while IFS= read -r -d '' f; do
+  (cd "$(dirname "$f")" && sha256sum -c "$(basename "$f")") || exit 1
+done < <(find "$RUN_ROOT" -name raw_trace.sha256 -print0)
+```
+
+For each track also inspect at least one JSON file and confirm:
+
+1. `target.model_id` is `Qwen/Qwen3-8B`;
+2. the recorded generation settings are `0.7/0.8/20/768` and thinking is `off`;
+3. `trajectory.messages` contains the complete victim interaction;
+4. track-specific tool results, observations, or retrieved memories exist;
+5. `label_status` is `pending`;
+6. Objective Drifting records the real WebShop backend.
+
+## 7. Thinking-on comparison runs
+
+Thinking-on is a separate experimental condition. Do not merge it into the
+same run directory or treat it as equivalent to the non-thinking campaign.
+Start a separate vLLM server/run root, omit the non-thinking chat-template
+default (or set `enable_thinking=true`), and use the thinking sampling condition
+`temperature=0.6`, `top_p=0.95`, `top_k=20`. Use a larger output budget such as
+4096 so reasoning is not truncated. Change the runner flag to
+`--victim_thinking on` (or `--local_thinking on` for Memory Poisoning).
+Because thinking-on has greater rerun
+variance, collect repeated rollouts per task when these traces are later used
+to estimate labels or attack rates.
