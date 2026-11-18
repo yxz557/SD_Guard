@@ -179,6 +179,9 @@ CONFIG = {
         "model": "gpt-5.1",
         "temperature": 0.3,
         "max_tokens": 2048,
+        "base_url": None,
+        "api_key": None,
+        "thinking_mode": "server",
     },
     "victim": {
         "model": "gpt-5.1",
@@ -193,6 +196,9 @@ CONFIG = {
         "model": "gpt-5.1",
         "temperature": 0,
         "max_tokens": 2048,
+        "base_url": None,
+        "api_key": None,
+        "thinking_mode": "server",
     },
     "attack": {
         # Number of planner optimization cycles
@@ -672,9 +678,14 @@ class OpenAILM:
                     if top_k is not None:
                         extra_body["top_k"] = top_k
                     if thinking_mode in ("on", "off"):
-                        extra_body["chat_template_kwargs"] = {
-                            "enable_thinking": thinking_mode == "on"
-                        }
+                        if "deepseek" in self.model_id.lower() and self.base_url:
+                            extra_body["thinking"] = {
+                                "type": "enabled" if thinking_mode == "on" else "disabled"
+                            }
+                        else:
+                            extra_body["chat_template_kwargs"] = {
+                                "enable_thinking": thinking_mode == "on"
+                            }
                     if extra_body:
                         kwargs_api["extra_body"] = extra_body
                 
@@ -1301,10 +1312,13 @@ Output format (JSON only):
     "predicted_attack_prompt": "The actual user message to send"
 }"""
 
-    def __init__(self, model_id: str, temperature: float = 0.3):
+    def __init__(self, model_id: str, temperature: float = 0.3,
+                 base_url: str = None, api_key: str = None,
+                 thinking_mode: str = "server"):
         self.model_id = model_id
         self.temperature = temperature
-        self.model = OpenAILM(model_id)
+        self.model = OpenAILM(model_id, base_url=base_url, api_key=api_key)
+        self.thinking_mode = thinking_mode
         self.output_history = []
         self.attack_goals = []
         self.explanations = []
@@ -1360,6 +1374,7 @@ Generate a user prompt to progress toward the attack goal."""
                 response = self.model.generate(
                     [[{"role": "user", "content": user_prompt}]],
                     temperature=self.temperature,
+                    thinking_mode=self.thinking_mode,
                     max_tokens=1024
                 )[0]
                 
@@ -1414,10 +1429,13 @@ Output format (JSON only):
     "prompt_harmlessness": {"score": N, "reason": "..."}
 }"""
 
-    def __init__(self, model_id: str, temperature: float = 0):
+    def __init__(self, model_id: str, temperature: float = 0,
+                 base_url: str = None, api_key: str = None,
+                 thinking_mode: str = "server"):
         self.model_id = model_id
         self.temperature = temperature
-        self.model = OpenAILM(model_id)
+        self.model = OpenAILM(model_id, base_url=base_url, api_key=api_key)
+        self.thinking_mode = thinking_mode
         self.output_history = []
         self.attack_goals = []
         self.explanations = []
@@ -1462,6 +1480,7 @@ Evaluate the attack progress."""
                 response = self.model.generate(
                     [[{"role": "user", "content": user_prompt}]],
                     temperature=self.temperature,
+                    thinking_mode=self.thinking_mode,
                     max_tokens=1024
                 )[0]
                 
@@ -1585,8 +1604,14 @@ class STACReplicaOrchestrator:
     def __init__(self, config: Dict):
         self.config = config
         self.agent_prompts = AgentSystemPrompts()
-        self.planner = Planner(config["attacker"]["model"], config["attacker"]["temperature"])
-        self.judge = Judge(config["judge"]["model"], config["judge"]["temperature"])
+        self.planner = Planner(
+            config["attacker"]["model"], config["attacker"]["temperature"],
+            config["attacker"].get("base_url"), config["attacker"].get("api_key"),
+            config["attacker"].get("thinking_mode", "server"))
+        self.judge = Judge(
+            config["judge"]["model"], config["judge"]["temperature"],
+            config["judge"].get("base_url"), config["judge"].get("api_key"),
+            config["judge"].get("thinking_mode", "server"))
     
     def run_attack(self, attack_data: Dict, silent: bool = False) -> AttackResult:
         """Run a single attack"""
@@ -1768,6 +1793,9 @@ class STACReplicaOrchestrator:
                     "runner": "Tool-chaining.py",
                     "recorded_at": result.timestamp,
                     "shade_available": SHADE_AVAILABLE,
+                    "auxiliary_model": self.config["attacker"]["model"],
+                    "auxiliary_base_url": self.config["attacker"].get("base_url"),
+                    "auxiliary_thinking_mode": self.config["attacker"].get("thinking_mode"),
                 },
             )
         return result
@@ -1821,13 +1849,12 @@ def get_model_config(model_id: str) -> Dict:
     
     return {"provider": "unknown", "temperature": 0.0, "max_tokens": 4096}
 
-def check_api_keys(victim_model: str, attacker_model: str) -> bool:
+def check_api_keys(victim_model: str, attacker_model: str,
+                   auxiliary_api_key: str = None) -> bool:
     """Check if required API keys are set"""
     missing = []
     
     victim_provider = get_model_provider(victim_model)
-    attacker_provider = get_model_provider(attacker_model)
-    
     if victim_provider == "anthropic" and not os.environ.get("ANTHROPIC_API_KEY"):
         missing.append("ANTHROPIC_API_KEY (for Claude victim)")
     
@@ -1835,8 +1862,9 @@ def check_api_keys(victim_model: str, attacker_model: str) -> bool:
         if not os.environ.get("GOOGLE_API_KEY") and not os.environ.get("GEMINI_API_KEY"):
             missing.append("GOOGLE_API_KEY or GEMINI_API_KEY (for Gemini victim)")
     
-    if attacker_provider in ["openai"] and not os.environ.get("OPENAI_API_KEY"):
-        missing.append("OPENAI_API_KEY (for attacker/judge)")
+    if not (auxiliary_api_key or os.environ.get("DEEPSEEK_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")):
+        missing.append("DEEPSEEK_API_KEY/OPENAI_API_KEY or --aux_api_key (for attacker/judge)")
     
     if missing:
         print(f"{RED}Missing API keys:{ENDC}")
@@ -1875,6 +1903,12 @@ Examples:
                         help="Base URL for local models (e.g., http://localhost:8001/v1)")
     parser.add_argument("--attacker_model", default="gpt-5.1",
                         help="Model for planner and judge (default: gpt-5.1)")
+    parser.add_argument("--aux_base_url", default=os.environ.get("OPENAI_BASE_URL"),
+                        help="OpenAI-compatible URL for planner/judge")
+    parser.add_argument("--aux_api_key", default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+                        help="API key for the planner/judge endpoint")
+    parser.add_argument("--aux_thinking", choices=["server", "on", "off"],
+                        default="server", help="Auxiliary model thinking mode")
     
     # Dataset arguments
     parser.add_argument("--dataset", default="data/filtered_top_200_attacks.json",
@@ -1910,7 +1944,7 @@ Examples:
     args = parser.parse_args()
     
     # Check API keys
-    if not check_api_keys(args.victim_model, args.attacker_model):
+    if not check_api_keys(args.victim_model, args.attacker_model, args.aux_api_key):
         return
     
     # Get model-specific config
@@ -1942,6 +1976,12 @@ Examples:
     
     CONFIG["attacker"]["model"] = args.attacker_model
     CONFIG["judge"]["model"] = args.attacker_model
+    CONFIG["attacker"]["base_url"] = args.aux_base_url
+    CONFIG["judge"]["base_url"] = args.aux_base_url
+    CONFIG["attacker"]["api_key"] = args.aux_api_key
+    CONFIG["judge"]["api_key"] = args.aux_api_key
+    CONFIG["attacker"]["thinking_mode"] = args.aux_thinking
+    CONFIG["judge"]["thinking_mode"] = args.aux_thinking
     
     # Update attack hyperparameters
     CONFIG["attack"]["max_turns"] = args.max_turns

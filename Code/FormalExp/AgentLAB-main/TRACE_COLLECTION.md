@@ -58,7 +58,7 @@ CUDA_VISIBLE_DEVICES=0 vllm serve "$VICTIM_MODEL_PATH" \
   --port 8001 \
   --tensor-parallel-size 1 \
   --dtype auto \
-  --gpu-memory-utilization 0.45 \
+  --gpu-memory-utilization 0.90 \
   --max-model-len 40960 \
   --max-num-seqs 20 \
   --trust-remote-code \
@@ -71,10 +71,9 @@ CUDA_VISIBLE_DEVICES=0 vllm serve "$VICTIM_MODEL_PATH" \
   2>&1 | tee "$RUN_ROOT/vllm_victim.log"
 ```
 
-The `0.45` GPU fraction leaves room for the Intent Hijacking attacker server.
-If Intent Hijacking is not being run concurrently, the victim can be restarted
-with a larger fraction. Do not let the fractions of two vLLM processes on one
-GPU approach more than the available memory.
+The `0.90` GPU fraction is for the current three-track campaign that skips
+Intent Hijacking. If the Intent attacker server is later started on the same
+GPU, reduce the victim fraction first; the two allocations must fit together.
 
 Verify both health and non-thinking output:
 
@@ -122,17 +121,17 @@ CUDA_VISIBLE_DEVICES=0 vllm serve "$ATTACKER_MODEL_PATH" \
 
 ## 3. Prepare the runner terminal
 
-Run the following in terminal C. The four attacks use remote planner/judge or
-attacker models in addition to the local Qwen victim, so a working
-OpenAI-compatible API key is still required.
+Run the following in terminal C. The non-victim planner/judge/attacker calls
+use DeepSeek's OpenAI-compatible chat endpoint. `DEEPSEEK_API_KEY` is not the
+Qwen victim key and is never written into a trace.
 
 ```bash
 source /root/miniconda3/etc/profile.d/conda.sh
 conda activate /root/autodl-tmp/conda-envs/sd4-vllm-cu130
 
-export OPENAI_API_KEY='YOUR_KEY'
-# If the planner/judge API is not api.openai.com, also set its compatible URL:
-# export OPENAI_BASE_URL='https://YOUR_ENDPOINT/v1'
+export DEEPSEEK_API_KEY='YOUR_KEY'
+export AUX_BASE_URL='https://api.deepseek.com'
+export AUX_MODEL='deepseek-flash'
 
 export SD_ROOT=/root/autodl-tmp/Code/SD_Guard
 export AL_ROOT="$SD_ROOT/Code/FormalExp/AgentLAB-main"
@@ -140,6 +139,15 @@ export RUN_ROOT="$SD_ROOT/results/agentlab/qwen3_8b_nothink_v1"
 export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
 mkdir -p "$RUN_ROOT"
 cd "$AL_ROOT"
+```
+
+Memory Poisoning also needs a local embedding model. This is a different model
+type from chat completion and runs on CPU in the commands below. Install/cache
+it once while the machine has network access:
+
+```bash
+pip install 'sentence-transformers==6.3.0'
+python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); print('embedder cached')"
 ```
 
 ## 4. Smoke-test commands
@@ -187,7 +195,9 @@ python Tool-chaining.py \
   --victim_top_k 20 \
   --victim_max_tokens 768 \
   --victim_thinking off \
-  --attacker_model gpt-5.1 \
+  --attacker_model "$AUX_MODEL" \
+  --aux_base_url "$AUX_BASE_URL" \
+  --aux_thinking off \
   --dataset data/filtered_top_200_attacks.json \
   --num_samples 2 \
   --seed 20261118 \
@@ -224,8 +234,12 @@ python attacks/goal_drift/goal_drift_v12.py \
   --victim_top_k 20 \
   --victim_max_tokens 768 \
   --victim_thinking off \
-  --attacker_model gpt-5.2 \
-  --judge_model gpt-5.1 \
+  --attacker_model "$AUX_MODEL" \
+  --judge_model "$AUX_MODEL" \
+  --extractor_model "$AUX_MODEL" \
+  --stealthiness_model "$AUX_MODEL" \
+  --aux_base_url "$AUX_BASE_URL" \
+  --aux_thinking off \
   --num_tasks 2 \
   --num_seeds 1 \
   --strategy optimized \
@@ -262,6 +276,16 @@ python Memory-Poisoning.py \
   --local_top_k 20 \
   --local_max_tokens 768 \
   --local_thinking off \
+  --aux_model "$AUX_MODEL" \
+  --aux_base_url "$AUX_BASE_URL" \
+  --aux_thinking off \
+  --mem0_mode compatible \
+  --mem0_llm_model "$AUX_MODEL" \
+  --mem0_embedder_model sentence-transformers/all-MiniLM-L6-v2 \
+  --mem0_embedding_dims 384 \
+  --mem0_embedder_device cpu \
+  --mem0_vector_path "$RUN_ROOT/memory_poisoning_smoke/mem0_qdrant" \
+  --mem0_collection_name agentlab_memory_smoke \
   --data_path data/all_refused_combined_200.json \
   --target_samples 2 \
   --start_idx 0 \
@@ -320,7 +344,9 @@ python Tool-chaining.py \
   --victim_top_k 20 \
   --victim_max_tokens 768 \
   --victim_thinking off \
-  --attacker_model gpt-5.1 \
+  --attacker_model "$AUX_MODEL" \
+  --aux_base_url "$AUX_BASE_URL" \
+  --aux_thinking off \
   --dataset data/filtered_top_200_attacks.json \
   --num_samples 200 \
   --seed 20261118 \
@@ -345,8 +371,12 @@ python attacks/goal_drift/goal_drift_v12.py \
   --victim_top_k 20 \
   --victim_max_tokens 768 \
   --victim_thinking off \
-  --attacker_model gpt-5.2 \
-  --judge_model gpt-5.1 \
+  --attacker_model "$AUX_MODEL" \
+  --judge_model "$AUX_MODEL" \
+  --extractor_model "$AUX_MODEL" \
+  --stealthiness_model "$AUX_MODEL" \
+  --aux_base_url "$AUX_BASE_URL" \
+  --aux_thinking off \
   --num_tasks 100 \
   --num_seeds 1 \
   --strategy optimized \
@@ -371,6 +401,16 @@ python Memory-Poisoning.py \
   --local_top_k 20 \
   --local_max_tokens 768 \
   --local_thinking off \
+  --aux_model "$AUX_MODEL" \
+  --aux_base_url "$AUX_BASE_URL" \
+  --aux_thinking off \
+  --mem0_mode compatible \
+  --mem0_llm_model "$AUX_MODEL" \
+  --mem0_embedder_model sentence-transformers/all-MiniLM-L6-v2 \
+  --mem0_embedding_dims 384 \
+  --mem0_embedder_device cpu \
+  --mem0_vector_path "$RUN_ROOT/memory_poisoning/mem0_qdrant" \
+  --mem0_collection_name agentlab_memory_full \
   --data_path data/all_refused_combined_200.json \
   --target_samples 100 \
   --start_idx 0 \
