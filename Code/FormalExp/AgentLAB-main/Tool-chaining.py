@@ -97,6 +97,7 @@ import random
 import re
 import inspect
 import uuid
+from difflib import SequenceMatcher
 from typing import Dict, List, Tuple, Optional, Any, Union, get_origin, get_args
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
@@ -147,6 +148,23 @@ except ImportError as e:
     SHADE_AVAILABLE = False
     print(f"Warning: SHADE_Arena not available: {e}")
     print("Using mock environment instead.")
+
+# Agent-SafetyBench is the second backend represented in the bundled
+# filtered_top_200_attacks.json dataset.  Keep its environment directory on
+# sys.path because the upstream environment modules import BaseEnv by its
+# top-level module name.
+AGENT_SAFETY_ENV_DIR = Path(__file__).resolve().parent / "Agent_SafetyBench" / "environments"
+if str(AGENT_SAFETY_ENV_DIR) not in sys.path:
+    sys.path.insert(0, str(AGENT_SAFETY_ENV_DIR))
+
+try:
+    from Agent_SafetyBench.environments.EnvManager import EnvManager
+    AGENT_SAFETY_AVAILABLE = True
+    print("Agent_SafetyBench environments loaded successfully.")
+except ImportError as e:
+    AGENT_SAFETY_AVAILABLE = False
+    EnvManager = None
+    print(f"Warning: Agent_SafetyBench environments not available: {e}")
 
 # ==========================================
 # SUPPORTED MODELS CONFIGURATION
@@ -516,6 +534,295 @@ class SHADEArenaEnvironment(BaseEnvironment):
         
         logging.info(f"\nEnvironment: {tool_call_result_message}")
         return tool_call_result_message
+
+
+# ==========================================
+# AGENT-SAFETYBENCH ENVIRONMENT
+# ==========================================
+class AgentSafetyBenchEnvironment(BaseEnvironment):
+    """Adapter for the Agent-SafetyBench environments bundled with AgentLAB."""
+
+    META_TOOLS = ("get_tool_descs", "has_tool")
+
+    def __init__(self, model_id: str, source_data: Dict,
+                 source_resolution: Optional[Dict] = None):
+        if not AGENT_SAFETY_AVAILABLE:
+            raise RuntimeError("Agent_SafetyBench environment package is unavailable")
+        self.model_id = model_id
+        self.source_data = deepcopy(source_data)
+        self.source_resolution = deepcopy(source_resolution or {})
+        self.env_manager = EnvManager()
+        self.envs = []
+        self.reset()
+
+    def reset(self):
+        self.envs = []
+        for env_info in self.source_data.get("environments", []):
+            env_name = env_info.get("name", "")
+            if not env_name:
+                continue
+            env = self.env_manager.init_env(env_name, env_info.get("parameters") or None)
+            if env is None:
+                raise ValueError(f"Agent_SafetyBench environment could not be loaded: {env_name}")
+            self.envs.append(env)
+        if not self.envs:
+            raise ValueError("Agent_SafetyBench source item contains no usable environments")
+        self._build_tool_config()
+
+    @staticmethod
+    def _meta_tool_definition(name: str) -> Dict:
+        if name == "get_tool_descs":
+            parameters = {
+                "type": "object",
+                "properties": {
+                    "tool_names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tool names whose descriptions should be returned.",
+                    }
+                },
+                "required": ["tool_names"],
+            }
+            description = "Return the descriptions of selected tools."
+        else:
+            parameters = {
+                "type": "object",
+                "properties": {
+                    "tool_name": {
+                        "type": "string",
+                        "description": "Tool name to check.",
+                    }
+                },
+                "required": ["tool_name"],
+            }
+            description = "Check whether this environment provides a tool."
+        return {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            },
+        }
+
+    def _build_tool_config(self):
+        tool_config = []
+        seen = set()
+        for env in self.envs:
+            for definition in getattr(env, "tool_descs", []):
+                name = definition.get("name")
+                if not name or name in seen:
+                    continue
+                function_definition = deepcopy(definition)
+                function_definition.pop("type", None)
+                function_definition.setdefault("description", f"Execute {name}.")
+                function_definition.setdefault(
+                    "parameters", {"type": "object", "properties": {}}
+                )
+                tool_config.append({"type": "function", "function": function_definition})
+                seen.add(name)
+        for name in self.META_TOOLS:
+            if name not in seen:
+                tool_config.append(self._meta_tool_definition(name))
+                seen.add(name)
+        self.tool_config = tool_config
+
+    def get_env_info(self) -> str:
+        return json.dumps({
+            "source_id": self.source_data.get("id"),
+            "environments": self.source_data.get("environments", []),
+            "failure_modes": self.source_data.get("failure_modes"),
+            "resolution": self.source_resolution,
+        }, default=str)
+
+    def get_tool_info(self) -> str:
+        return json.dumps(self.tool_config)
+
+    def supports_tool(self, tool_name: str) -> bool:
+        return any(hasattr(env, tool_name) for env in self.envs)
+
+    def execute_raw_tool(self, tool_name: str, arguments: Dict) -> Any:
+        for env in self.envs:
+            if not hasattr(env, tool_name):
+                continue
+            args = deepcopy(arguments or {})
+            if tool_name == "get_tool_descs":
+                names = args.get("tool_names", [])
+                if isinstance(names, str):
+                    names = [part.strip() for part in names.split(",") if part.strip()]
+                return env.get_tool_descs(names)
+            if tool_name == "has_tool":
+                return env.has_tool(args.get("tool_name", ""))
+            return env.call_tool(tool_name, args)
+        return None
+
+    def step(self, completion: Dict) -> List[Dict]:
+        tool_call_id = completion["tool_call_id"]
+        tool_name = completion["tool_name"]
+        result = self.execute_raw_tool(tool_name, completion.get("arguments", {}))
+        result_text = str(result) if result is not None else f"Tool {tool_name} doesn't exist."
+        message = [{
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": tool_name,
+            "content": result_text,
+        }]
+        logging.info(f"\nEnvironment: {message}")
+        return message
+
+
+_ASB_RELEASED_DATA_CACHE: Optional[List[Dict]] = None
+_ASB_SOURCE_CACHE: Dict[str, Tuple[Dict, Dict]] = {}
+
+
+def _load_agent_safety_released_data() -> List[Dict]:
+    global _ASB_RELEASED_DATA_CACHE
+    if _ASB_RELEASED_DATA_CACHE is None:
+        path = Path(__file__).resolve().parent / "Agent_SafetyBench" / "data" / "released_data.json"
+        with open(path, "r", encoding="utf-8") as f:
+            _ASB_RELEASED_DATA_CACHE = json.load(f)
+    return _ASB_RELEASED_DATA_CACHE
+
+
+def _decode_tool_arguments(value: Any) -> Dict:
+    """Decode the occasionally double-encoded arguments in generated histories."""
+    decoded = value
+    for _ in range(3):
+        if not isinstance(decoded, str):
+            break
+        try:
+            next_value = json_repair.loads(decoded)
+        except Exception:
+            break
+        if next_value == decoded:
+            break
+        decoded = next_value
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _normalize_tool_result(value: Any) -> str:
+    if value is None:
+        return "none"
+    text = re.sub(r"\s+", " ", str(value).strip().lower())
+    # Some generated histories truncated Python's ``None`` to ``Non``.
+    return "none" if text in {"non", "none"} else text
+
+
+def _agent_safety_history_score(env: AgentSafetyBenchEnvironment,
+                                history: List[Dict]) -> Tuple[int, float, int]:
+    pending = {}
+    exact = 0
+    similarity = 0.0
+    compared = 0
+    for message in history or []:
+        if message.get("role") == "assistant":
+            for tool_call in message.get("tool_calls", []) or []:
+                function = tool_call.get("function", {})
+                name = function.get("name", "")
+                args = _decode_tool_arguments(function.get("arguments", {}))
+                try:
+                    result = env.execute_raw_tool(name, args)
+                except Exception as exc:
+                    result = f"Error: {exc}"
+                pending[str(tool_call.get("id", ""))] = result
+        elif message.get("role") == "tool":
+            call_id = str(message.get("tool_call_id", ""))
+            if call_id not in pending:
+                continue
+            actual = _normalize_tool_result(pending.pop(call_id))
+            expected = _normalize_tool_result(message.get("content"))
+            compared += 1
+            if actual == expected:
+                exact += 1
+            similarity += SequenceMatcher(None, actual, expected).ratio()
+    return exact, similarity, compared
+
+
+def resolve_agent_safety_source(attack_data: Dict, model_id: str) -> Tuple[Dict, Dict]:
+    """Recover the Agent-SafetyBench source item omitted by the filtered file."""
+    attack_id = str(attack_data.get("original_id", "unknown"))
+    if attack_id in _ASB_SOURCE_CACHE:
+        source, resolution = _ASB_SOURCE_CACHE[attack_id]
+        return deepcopy(source), deepcopy(resolution)
+
+    gen_config = attack_data.get("generation_config", {})
+    target_env = str(gen_config.get("environment", ""))
+    failure_match = re.match(r"\s*(\d+)", str(gen_config.get("failure_mode", "")))
+    failure_mode = failure_match.group(1) if failure_match else None
+    required_tools = {
+        str(step.get("tool_name"))
+        for step in attack_data.get("attack_plan", {}).get("verified_tool_chain", [])
+        if step.get("tool_name")
+    }
+    for message in attack_data.get("interaction_history", []) or []:
+        for tool_call in message.get("tool_calls", []) or []:
+            name = tool_call.get("function", {}).get("name")
+            if name:
+                required_tools.add(str(name))
+
+    candidates = []
+    for item in _load_agent_safety_released_data():
+        env_names = {str(e.get("name", "")) for e in item.get("environments", [])}
+        if target_env not in env_names:
+            continue
+        failure_modes = {part.strip() for part in str(item.get("failure_modes", "")).split(",")}
+        if failure_mode and failure_mode not in failure_modes:
+            continue
+        candidates.append(item)
+
+    if not candidates:
+        raise ValueError(
+            f"No Agent_SafetyBench source candidates for attack {attack_id} "
+            f"(environment={target_env}, failure_mode={failure_mode})"
+        )
+
+    scored = []
+    for item in candidates:
+        try:
+            candidate_env = AgentSafetyBenchEnvironment(model_id, item)
+            if any(not candidate_env.supports_tool(name) for name in required_tools):
+                continue
+            score = _agent_safety_history_score(
+                candidate_env, attack_data.get("interaction_history", [])
+            )
+            scored.append((score, int(item.get("id", 0)), item))
+        except Exception as exc:
+            logger.debug("Skipping Agent_SafetyBench source %s: %s", item.get("id"), exc)
+
+    if not scored:
+        raise ValueError(
+            f"No Agent_SafetyBench source for attack {attack_id} supports tools "
+            f"{sorted(required_tools)}"
+        )
+
+    scored.sort(key=lambda row: (row[0][0], row[0][1], row[0][2], -row[1]), reverse=True)
+    best_score, source_id, source = scored[0]
+    tied_ids = [
+        item_id for score, item_id, _ in scored
+        if score[0] == best_score[0] and abs(score[1] - best_score[1]) < 1e-9
+    ]
+    resolution = {
+        "method": "environment_failure_mode_tools_history_replay",
+        "source_id": source_id,
+        "candidate_count": len(candidates),
+        "supported_candidate_count": len(scored),
+        "history_exact_matches": best_score[0],
+        "history_comparisons": best_score[2],
+        "history_similarity": round(best_score[1], 6),
+        "tied_source_ids": tied_ids,
+    }
+    if len(tied_ids) > 1:
+        logger.warning(
+            "Agent_SafetyBench attack %s has equivalent source candidates %s; using %s",
+            attack_id, tied_ids, source_id,
+        )
+    else:
+        logger.info(
+            "Resolved Agent_SafetyBench attack %s to source %s (%s/%s exact history results)",
+            attack_id, source_id, best_score[0], best_score[2],
+        )
+    _ASB_SOURCE_CACHE[attack_id] = (deepcopy(source), deepcopy(resolution))
+    return deepcopy(source), deepcopy(resolution)
 
 # ==========================================
 # MOCK ENVIRONMENT
@@ -1683,13 +1990,22 @@ class STACReplicaOrchestrator:
         
         gen_config = attack_data.get("generation_config", {})
         env_name = gen_config.get("environment", "travel")
+        source_dataset = gen_config.get("dataset", "SHADE_Arena")
         
         if not silent:
             print(f"\n{CYAN}[Attack {attack_id}] {attack_goal[:70]}...{ENDC}")
             print(f"  Environment: {env_name}, Steps: {len(tool_chain)}")
         
-        # Create environment with victim model
-        if SHADE_AVAILABLE:
+        # The bundled Tool Chaining file mixes SHADE-Arena and
+        # Agent-SafetyBench samples.  Route each row to its own backend.
+        if source_dataset == "Agent_SafetyBench":
+            source_data, source_resolution = resolve_agent_safety_source(
+                attack_data, self.config["victim"]["model"]
+            )
+            env = AgentSafetyBenchEnvironment(
+                self.config["victim"]["model"], source_data, source_resolution
+            )
+        elif SHADE_AVAILABLE:
             env = SHADEArenaEnvironment(self.config["victim"]["model"], env_name)
         else:
             env = MockSHADEEnvironment(self.config["victim"]["model"], env_name)
@@ -1833,6 +2149,7 @@ class STACReplicaOrchestrator:
                 },
                 environment={
                     "name": env_name,
+                    "backend": source_dataset,
                     "description": environment_info,
                     "tool_definitions": tool_definitions,
                 },
@@ -1852,6 +2169,15 @@ class STACReplicaOrchestrator:
                     "run_id": trace_config.get("run_id"),
                     "seed": trace_config.get("seed"),
                     "runner": "Tool-chaining.py",
+                    "source_dataset": source_dataset,
+                    "agent_safety_source_id": (
+                        getattr(env, "source_data", {}).get("id")
+                        if source_dataset == "Agent_SafetyBench" else None
+                    ),
+                    "agent_safety_resolution": (
+                        getattr(env, "source_resolution", None)
+                        if source_dataset == "Agent_SafetyBench" else None
+                    ),
                     "recorded_at": result.timestamp,
                     "shade_available": SHADE_AVAILABLE,
                     "auxiliary_model": self.config["attacker"]["model"],
@@ -1864,11 +2190,17 @@ class STACReplicaOrchestrator:
 # ==========================================
 # UTILITIES
 # ==========================================
-def load_attacks(filepath: str, num_samples: int = None, seed: int = 42) -> List[Dict]:
+def load_attacks(filepath: str, num_samples: int = None, seed: int = 42,
+                 dataset_source: Optional[str] = None) -> List[Dict]:
     with open(filepath) as f:
         data = json.load(f)
     if not isinstance(data, list):
         data = [data]
+    if dataset_source:
+        data = [
+            item for item in data
+            if item.get("generation_config", {}).get("dataset") == dataset_source
+        ]
     if num_samples and num_samples < len(data):
         random.seed(seed)
         data = random.sample(data, num_samples)
@@ -1987,6 +2319,14 @@ Examples:
     # Dataset arguments
     parser.add_argument("--dataset", default="data/filtered_top_200_attacks.json",
                         help="Path to attack dataset JSON file")
+    parser.add_argument(
+        "--dataset_source", choices=["SHADE_Arena", "Agent_SafetyBench"], default=None,
+        help="Run only one backend from a mixed Tool Chaining dataset",
+    )
+    parser.add_argument(
+        "--resolve_agent_safety_only", action="store_true",
+        help="Resolve Agent-SafetyBench source environments without calling any model API",
+    )
     parser.add_argument("--num_samples", type=int, default=None,
                         help="Number of samples to test (default: all)")
     parser.add_argument("--seed", type=int, default=42,
@@ -2027,6 +2367,23 @@ Examples:
             and args.aux_thinking == "server"):
         logger.warning("DeepSeek thinking defaults on; forcing auxiliary thinking off")
         args.aux_thinking = "off"
+
+    if args.resolve_agent_safety_only:
+        attacks = load_attacks(
+            args.dataset, args.num_samples, args.seed,
+            args.dataset_source or "Agent_SafetyBench",
+        )
+        resolved = []
+        for attack in attacks:
+            source, resolution = resolve_agent_safety_source(attack, args.victim_model)
+            resolved.append({
+                "attack_id": attack.get("original_id"),
+                "source_id": source.get("id"),
+                **resolution,
+            })
+        print(json.dumps(resolved, indent=2))
+        print(f"Resolved {len(resolved)} Agent_SafetyBench attacks.")
+        return
     
     # Check API keys
     if not check_api_keys(args.victim_model, args.attacker_model, args.aux_api_key):
@@ -2088,7 +2445,7 @@ Examples:
     save_json(output_dir, redact_secrets(CONFIG), "config.json")
     
     # Load attacks
-    attacks = load_attacks(args.dataset, args.num_samples, args.seed)
+    attacks = load_attacks(args.dataset, args.num_samples, args.seed, args.dataset_source)
     
     # Print header
     print(f"\n{GREEN}{'='*70}")
@@ -2098,6 +2455,7 @@ Examples:
     print(f"Google GenAI SDK: {GOOGLE_GENAI_AVAILABLE}")
     print(f"\n{CYAN}Configuration:{ENDC}")
     print(f"  Attacks: {len(attacks)}")
+    print(f"  Dataset Source: {args.dataset_source or 'all'}")
     print(f"  Victim Model: {args.victim_model}")
     print(f"  Victim Provider: {get_model_provider(args.victim_model)}")
     if CONFIG["victim"]["base_url"]:

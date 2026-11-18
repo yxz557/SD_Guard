@@ -392,6 +392,116 @@ test "$FULL_COUNT" -eq 200 || { echo "INCOMPLETE full trace count: $FULL_COUNT/2
 echo "VALID: $FULL_COUNT/200 traces"
 ```
 
+### Recover only the 33 Agent-SafetyBench Tool Chaining rows
+
+The bundled 200-row Tool Chaining file contains 167 SHADE-Arena rows and 33
+Agent-SafetyBench rows.  `--dataset_source Agent_SafetyBench` selects only the
+second group, so an existing 167-row SHADE run does not need to be repeated.
+
+First verify source-environment recovery without calling vLLM or DeepSeek:
+
+```bash
+export ASB_ROOT="$TOOL_ROOT/agent_safety_recovery"
+mkdir -p "$ASB_ROOT"
+
+python Tool-chaining.py \
+  --victim_model "$VICTIM_MODEL_NAME" \
+  --dataset data/filtered_top_200_attacks.json \
+  --dataset_source Agent_SafetyBench \
+  --resolve_agent_safety_only \
+  2>&1 | tee "$ASB_ROOT/resolve.log"
+
+grep -q 'Resolved 33 Agent_SafetyBench attacks.' "$ASB_ROOT/resolve.log" || {
+  echo 'INVALID: did not resolve all 33 Agent-SafetyBench rows'
+  exit 1
+}
+```
+
+Then run a two-row smoke test:
+
+```bash
+mkdir -p "$ASB_ROOT/smoke"
+python Tool-chaining.py \
+  --victim_model "$VICTIM_MODEL_NAME" \
+  --victim_base_url http://127.0.0.1:8001/v1 \
+  --victim_temperature 0.7 \
+  --victim_top_p 0.8 \
+  --victim_top_k 20 \
+  --victim_max_tokens 768 \
+  --victim_thinking off \
+  --attacker_model "$AUX_MODEL" \
+  --aux_base_url "$AUX_BASE_URL" \
+  --aux_thinking off \
+  --dataset data/filtered_top_200_attacks.json \
+  --dataset_source Agent_SafetyBench \
+  --num_samples 2 \
+  --seed 20261118 \
+  --max_turns 10 \
+  --max_agent_rounds 10 \
+  --success_threshold 3 \
+  --output_dir "$ASB_ROOT/smoke/results" \
+  --trace_dir "$ASB_ROOT/smoke/traces" \
+  2>&1 | tee "$ASB_ROOT/smoke/run.log"
+
+ASB_SMOKE_COUNT=$(find "$ASB_ROOT/smoke/traces" -name raw_trace.json | wc -l)
+test "$ASB_SMOKE_COUNT" -eq 2 || {
+  echo "INVALID Agent-SafetyBench smoke count: $ASB_SMOKE_COUNT/2"
+  exit 1
+}
+```
+
+After inspecting the smoke traces, run all 33 rows:
+
+```bash
+mkdir -p "$ASB_ROOT/full"
+python Tool-chaining.py \
+  --victim_model "$VICTIM_MODEL_NAME" \
+  --victim_base_url http://127.0.0.1:8001/v1 \
+  --victim_temperature 0.7 \
+  --victim_top_p 0.8 \
+  --victim_top_k 20 \
+  --victim_max_tokens 768 \
+  --victim_thinking off \
+  --attacker_model "$AUX_MODEL" \
+  --aux_base_url "$AUX_BASE_URL" \
+  --aux_thinking off \
+  --dataset data/filtered_top_200_attacks.json \
+  --dataset_source Agent_SafetyBench \
+  --num_samples 33 \
+  --seed 20261118 \
+  --max_turns 10 \
+  --max_agent_rounds 10 \
+  --success_threshold 3 \
+  --output_dir "$ASB_ROOT/full/results" \
+  --trace_dir "$ASB_ROOT/full/traces" \
+  2>&1 | tee "$ASB_ROOT/full/run.log"
+
+ASB_FULL_COUNT=$(find "$ASB_ROOT/full/traces" -name raw_trace.json | wc -l)
+test "$ASB_FULL_COUNT" -eq 33 || {
+  echo "INCOMPLETE Agent-SafetyBench trace count: $ASB_FULL_COUNT/33"
+  exit 1
+}
+if grep -q 'Unknown environment' "$ASB_ROOT/full/run.log"; then
+  echo 'INVALID: Agent-SafetyBench environment routing failed'
+  exit 1
+fi
+echo 'VALID: 33/33 Agent-SafetyBench traces'
+```
+
+Keep the recovery result JSON separate, but merge the validated raw trace
+directories into the existing 167-row trace root if a single 200-trace folder
+is required:
+
+```bash
+cp -a "$ASB_ROOT/full/traces/." "$TOOL_ROOT/full/traces/"
+MERGED_COUNT=$(find "$TOOL_ROOT/full/traces" -name raw_trace.json | wc -l)
+test "$MERGED_COUNT" -eq 200 || {
+  echo "INCOMPLETE merged Tool Chaining traces: $MERGED_COUNT/200"
+  exit 1
+}
+echo 'VALID: merged 200/200 Tool Chaining traces'
+```
+
 ### Objective Drifting full run
 
 ```bash
