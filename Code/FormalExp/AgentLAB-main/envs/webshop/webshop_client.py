@@ -64,6 +64,7 @@ class WebShopSubprocessClient:
         self.done: bool = False
         self.page_type: str = "search"
         self.num_tasks: int = 12087
+        self.current_task_idx: Optional[int] = None
 
         # Start the bridge
         self._start_bridge(num_products, startup_timeout)
@@ -195,6 +196,7 @@ class WebShopSubprocessClient:
         self.last_item_name = ""
         self.done = False
         self.page_type = "search"
+        self.current_task_idx = None
 
     def reset(self, task_idx: int = None) -> str:
         self.reset_state()
@@ -205,7 +207,15 @@ class WebShopSubprocessClient:
 
         data = self._call(cmd)
 
+        returned_task_idx = data.get("task_idx")
+        if task_idx is not None and returned_task_idx != task_idx:
+            raise RuntimeError(
+                f"Bridge reset mismatch: requested task_idx={task_idx}, "
+                f"received task_idx={returned_task_idx}"
+            )
+
         obs = data["observation"]
+        self.current_task_idx = returned_task_idx
         self.task_instruction = data.get("task_instruction", "")
         self.page_type = data.get("page_type", "search")
 

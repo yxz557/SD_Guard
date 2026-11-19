@@ -29,10 +29,13 @@ Usage:
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
 
 ROOT_DIR = Path(__file__).parent.resolve()
 WEBSHOP_ENV_DIR = ROOT_DIR / "envs" / "webshop"
@@ -77,6 +80,35 @@ YELLOW = '\033[1;33m'
 CYAN = '\033[0;36m'
 BOLD = '\033[1m'
 NC = '\033[0m'
+
+
+SENSITIVE_FLAGS = {"--api_key", "--api-key"}
+
+
+def is_sensitive_flag(flag: str) -> bool:
+    normalized = flag.lower().replace("-", "_").lstrip("_")
+    return flag in SENSITIVE_FLAGS or normalized.endswith("api_key")
+
+
+def format_command_for_log(cmd: list) -> str:
+    """Render a child command without leaking credentials to run.log."""
+    safe = []
+    redact_next = False
+    for token in cmd:
+        if redact_next:
+            safe.append("<redacted>")
+            redact_next = False
+            continue
+        flag, separator, _value = token.partition("=")
+        if is_sensitive_flag(flag):
+            if separator:
+                safe.append(f"{flag}=<redacted>")
+            else:
+                safe.append(token)
+                redact_next = True
+        else:
+            safe.append(token)
+    return shlex.join(safe)
 
 
 # ============================================================================
@@ -163,7 +195,7 @@ def run_v12_attack(victim_key: str, extra_args: list):
     print(f"\n{CYAN}{'='*60}")
     print(f" Aggressive Attack (v12) → {preset['display']}")
     print(f"{'='*60}{NC}\n")
-    print(f"Command: {' '.join(cmd)}\n")
+    print(f"Command: {format_command_for_log(cmd)}\n")
 
     result = subprocess.run(cmd)
     return result.returncode
@@ -181,7 +213,7 @@ def run_v13_attack(victim_keys: list, extra_args: list):
     print(f"\n{CYAN}{'='*60}")
     print(f" Subtle Persuasion Attack (v13) → {', '.join(victim_keys)}")
     print(f"{'='*60}{NC}\n")
-    print(f"Command: {' '.join(cmd)}\n")
+    print(f"Command: {format_command_for_log(cmd)}\n")
 
     result = subprocess.run(cmd)
     return result.returncode
@@ -269,7 +301,7 @@ Modes:
 v12 Victims (--victim):
   gpt4o        GPT-4o via OpenAI API
   llama        Llama 3.1 8B Instruct via vLLM (port 8000)
-  qwen         Qwen3-30B-A3B via vLLM (port 8001)
+  qwen         Qwen3-8B via vLLM (port 8001)
 
 v13 Victims (--victims):
   claude       Claude 4.5 Sonnet via Anthropic API
@@ -300,6 +332,11 @@ Examples:
                         help="Check if WebShop environment is ready")
     parser.add_argument("--list", action="store_true",
                         help="List available victims and modes")
+    parser.add_argument(
+        "--secrets_file", "--secrets-file",
+        default=str(DEFAULT_SECRETS_FILE),
+        help="Machine-local KEY=VALUE file loaded before launching an attack",
+    )
 
     # Everything else passes through to the attack script
     args, extra_args = parser.parse_known_args()
@@ -356,6 +393,30 @@ Examples:
         parser.print_help()
         print(f"\n{YELLOW}Tip: Use --list to see all options.{NC}")
         return
+
+    # Load the machine-local configuration after utility-only actions, but
+    # before constructing child-process arguments/defaults.  File values win
+    # over stale shell exports; explicit child CLI flags still win afterward.
+    try:
+        secrets_path, loaded_names = load_local_env(args.secrets_file, override=True)
+    except ValueError as exc:
+        print(f"{RED}Invalid local configuration: {exc}{NC}")
+        sys.exit(2)
+    if secrets_path.is_file():
+        names = ", ".join(loaded_names) if loaded_names else "no values"
+        print(f"{GREEN}✓ Loaded local configuration: {secrets_path} ({names}){NC}")
+    else:
+        print(f"{YELLOW}Local configuration not found: {secrets_path}{NC}")
+        print(f"Copy config/local_secrets.env.example to config/local_secrets.env and fill it once.")
+
+    aux_base_url = os.environ.get("AUX_BASE_URL", "")
+    if "deepseek" in aux_base_url.lower():
+        try:
+            validate_secret_value("DEEPSEEK_API_KEY", os.environ.get("DEEPSEEK_API_KEY"))
+        except ValueError as exc:
+            print(f"{RED}{exc}.{NC}")
+            print(f"Fill the real key once in: {secrets_path}")
+            sys.exit(2)
 
     # Ensure WebShop env is ready before any attack
     print(f"{CYAN}{'='*60}")

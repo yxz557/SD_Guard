@@ -70,6 +70,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
+from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
+
 import pandas as pd
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 from openai import OpenAI, BadRequestError, APIConnectionError
@@ -1302,6 +1304,19 @@ def check_keys(victim_map: Dict[str, Dict], auxiliary_api_key: str = "") -> List
 # MAIN
 # ==========================================
 def main():
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--secrets_file", "--secrets-file",
+                            default=str(DEFAULT_SECRETS_FILE))
+    pre_args, _ = pre_parser.parse_known_args()
+    try:
+        secrets_path, loaded_names = load_local_env(pre_args.secrets_file, override=True)
+    except ValueError as exc:
+        print(f"{RED}Invalid local configuration: {exc}{ENDC}")
+        return
+    if secrets_path.is_file():
+        logger.info("Loaded local configuration from %s (%s)", secrets_path,
+                    ", ".join(loaded_names) if loaded_names else "no values")
+
     aux_base_default = (
         os.environ.get("AUX_BASE_URL")
         or os.environ.get("OPENAI_BASE_URL")
@@ -1362,6 +1377,8 @@ EXAMPLES:
                         help="API key for planner/judge")
     parser.add_argument("--aux_thinking", choices=["server", "on", "off"],
                         default=aux_thinking_default, help="Planner/judge thinking mode")
+    parser.add_argument("--secrets_file", "--secrets-file", default=str(secrets_path),
+                        help="Machine-local KEY=VALUE file (loaded automatically)")
 
     # dataset
     parser.add_argument("--dataset", default="data/filtered_top_200_attacks.json")
@@ -1388,6 +1405,13 @@ EXAMPLES:
         "--trace_dir", default=None,
         help="Immutable raw trace root (default: <output_dir>/traces)")
     args = parser.parse_args()
+
+    try:
+        args.aux_api_key = validate_secret_value("auxiliary API key", args.aux_api_key)
+    except ValueError as exc:
+        print(f"{RED}{exc}.{ENDC}")
+        print(f"Fill DEEPSEEK_API_KEY once in: {secrets_path}")
+        return
 
     if (args.aux_base_url and "deepseek" in args.aux_base_url.lower()
             and not args.planner_judge_model.lower().startswith("deepseek-")):

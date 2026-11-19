@@ -45,7 +45,11 @@ env_exists() { conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; }
 if [[ "${1:-}" == "--check" ]]; then
     env_exists || die "conda env '$ENV_NAME' does not exist (run without --check first)"
     conda activate "$ENV_NAME" || die "could not activate '$ENV_NAME'"
-    python -c "import gym, web_agent_site" 2>/dev/null              || die "web_agent_site not importable in '$ENV_NAME'"
+    # web_agent_site is a source package under SCRIPT_DIR, not an installed
+    # site-package.  Match webshop_client.py, which starts the real bridge with
+    # envs/webshop as its working directory.
+    (cd "$SCRIPT_DIR" && python -c "import gym, web_agent_site") 2>/dev/null \
+        || die "web_agent_site not importable in '$ENV_NAME'"
     python -c "import pyserini, spacy, transformers" 2>/dev/null    || die "core deps missing in '$ENV_NAME'"
     python -c "import spacy; spacy.load('$SPACY_MODEL')" 2>/dev/null || die "$SPACY_MODEL not installed/loadable"
     ls "$DATA_DIR"/items_*.json >/dev/null 2>&1                     || die "product/instruction data missing in $DATA_DIR"
@@ -65,9 +69,12 @@ else
 fi
 conda activate "$ENV_NAME" || die "could not activate '$ENV_NAME'"
 
-# 1. conda-only packages (NOT in the pip requirements)
-say "installing faiss-cpu + JDK 11 via conda"
-conda install -y -c pytorch faiss-cpu || warn "faiss-cpu via conda failed; sparse search may still work"
+# 1. conda-only system dependency (NOT in the pip requirements)
+# Keep Faiss out of this step: an unversioned conda install can select a
+# recent loader that imports numpy._core, while the reproduced WebShop stack
+# intentionally pins NumPy 1.22.4.  A compatible Python 3.10 wheel is pinned
+# immediately after the frozen requirements are installed below.
+say "installing JDK 11 via conda"
 conda install -y -c conda-forge openjdk=11 || die "openjdk install failed (pyserini needs a JVM)"
 
 # 2. python deps, reproduced exactly with --no-deps
@@ -77,6 +84,10 @@ python -m pip install Cython==3.2.2 pybind11==3.0.1     # build deps, in case nm
 python -m pip install --no-deps -r "$REQ_FILE" || die "pip install failed (see above).
     If nmslib failed to build, ensure a C++ compiler is present (e.g. apt install build-essential),
     then: pip install --no-build-isolation --no-deps nmslib==2.1.2"
+python -m pip install --no-deps --force-reinstall faiss-cpu==1.7.4 \
+    || die "faiss-cpu 1.7.4 install failed"
+python -c "import numpy, faiss; print('numpy', numpy.__version__, '| faiss', faiss.__version__)" \
+    || die "NumPy/Faiss compatibility check failed"
 
 # 3. data (gdown IDs from your setup.sh; skip if present)
 mkdir -p "$DATA_DIR"

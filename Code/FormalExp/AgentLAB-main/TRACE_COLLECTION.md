@@ -58,7 +58,7 @@ CUDA_VISIBLE_DEVICES=0 vllm serve "$VICTIM_MODEL_PATH" \
   --port 8001 \
   --tensor-parallel-size 1 \
   --dtype auto \
-  --gpu-memory-utilization 0.90 \
+  --gpu-memory-utilization 0.95 \
   --max-model-len 40960 \
   --max-num-seqs 20 \
   --trust-remote-code \
@@ -71,7 +71,7 @@ CUDA_VISIBLE_DEVICES=0 vllm serve "$VICTIM_MODEL_PATH" \
   2>&1 | tee "$RUN_ROOT/vllm_victim.log"
 ```
 
-The `0.90` GPU fraction is for the current three-track campaign that skips
+The `0.95` GPU fraction is for the current three-track campaign that skips
 Intent Hijacking. If the Intent attacker server is later started on the same
 GPU, reduce the victim fraction first; the two allocations must fit together.
 
@@ -129,10 +129,6 @@ Qwen victim key and is never written into a trace.
 source /root/miniconda3/etc/profile.d/conda.sh
 conda activate /root/autodl-tmp/conda-envs/sd4-vllm-cu130
 
-export DEEPSEEK_API_KEY='YOUR_KEY'
-export AUX_BASE_URL='https://api.deepseek.com'
-export AUX_MODEL='deepseek-flash'
-
 export SD_ROOT=/root/autodl-tmp/Code/SD_Guard
 export AL_ROOT="$SD_ROOT/Code/FormalExp/AgentLAB-main"
 export RUN_ROOT="$SD_ROOT/results/agentlab/qwen3_8b_nothink_v1"
@@ -140,7 +136,15 @@ export TOOL_ROOT="$RUN_ROOT/tool_chaining_deepseek_flash"
 export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
 mkdir -p "$RUN_ROOT" "$TOOL_ROOT"
 cd "$AL_ROOT"
+
+# One-time only: all AgentLAB runners load this ignored local file automatically.
+cp -n config/local_secrets.env.example config/local_secrets.env
+nano config/local_secrets.env
+chmod 600 config/local_secrets.env
 ```
+
+Set the real `DEEPSEEK_API_KEY` in that file. Subsequent terminals do not need
+to export the key, auxiliary URL, or auxiliary model again.
 
 Before running Tool Chaining, verify that the server copy contains the empty
 DeepSeek response retry and the auxiliary-thinking startup print:

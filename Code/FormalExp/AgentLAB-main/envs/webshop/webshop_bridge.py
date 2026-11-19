@@ -12,7 +12,6 @@ It should NEVER be run manually.
 import sys
 import json
 import re
-import random
 import os
 
 # Critical: web_agent_site is not pip-installed. It must be importable
@@ -78,6 +77,44 @@ def do_step(env, action):
         raise ValueError(f"Unexpected step result length: {len(result)}")
 
 
+def determine_num_tasks(env):
+    """Return the real number of goals loaded by this WebShop instance."""
+    base_env = env.unwrapped if hasattr(env, "unwrapped") else env
+    server = getattr(base_env, "server", None)
+    goals = getattr(server, "goals", None)
+    if goals is not None:
+        count = len(goals)
+        if count > 0:
+            return count
+
+    for candidate in (env, base_env):
+        count = getattr(candidate, "num_goals", None)
+        if isinstance(count, int) and count > 0:
+            return count
+
+    raise RuntimeError(
+        "Could not determine the number of loaded WebShop goals; "
+        "refusing to report a hard-coded task count"
+    )
+
+
+def reset_exact_task(env, task_idx):
+    """Start a fresh episode for exactly ``server.goals[task_idx]``."""
+    base_env = env.unwrapped if hasattr(env, "unwrapped") else env
+    server = getattr(base_env, "server", None)
+
+    # WebShop uses str(session) as the session key and otherwise reuses the
+    # cached goal/episode state.  Baseline and attack deliberately revisit the
+    # same task, so remove the old session before each reset.
+    prefix = getattr(base_env, "session_prefix", None) or ""
+    session_key = f"{prefix}{task_idx}"
+    user_sessions = getattr(server, "user_sessions", None)
+    if isinstance(user_sessions, dict):
+        user_sessions.pop(session_key, None)
+
+    return env.reset(session=task_idx)
+
+
 def main():
     # Read init config from first line
     init_line = sys.stdin.readline().strip()
@@ -108,15 +145,13 @@ def main():
         _real_stdout.flush()
         return
 
-    # Determine num_tasks
-    num_tasks = 12087
     try:
-        if hasattr(env, 'num_goals'):
-            num_tasks = env.num_goals
-        elif hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'num_goals'):
-            num_tasks = env.unwrapped.num_goals
-    except:
-        pass
+        num_tasks = determine_num_tasks(env)
+    except Exception as e:
+        _real_stdout.write(json.dumps({"error": str(e)}) + "\n")
+        _real_stdout.flush()
+        env.close()
+        return
 
     # Send ready signal
     _real_stdout.write(json.dumps({"status": "ready", "num_tasks": num_tasks}) + "\n")
@@ -142,13 +177,23 @@ def main():
             if command == "reset":
                 task_idx = cmd.get("task_idx", None)
                 if task_idx is not None:
-                    random.seed(task_idx % num_tasks)
-
-                result = env.reset()
+                    task_idx = int(task_idx)
+                    if not 0 <= task_idx < num_tasks:
+                        raise IndexError(
+                            f"task_idx {task_idx} outside loaded goal range "
+                            f"[0, {num_tasks - 1}]"
+                        )
+                    # WebAgentTextEnv.reset(session=int) maps the integer
+                    # directly to server.goals[task_idx].  Seeding random and
+                    # calling reset() does not select that exact goal.
+                    result = reset_exact_task(env, task_idx)
+                else:
+                    result = env.reset()
                 obs = result[0] if isinstance(result, tuple) else result
 
                 _real_stdout.write(json.dumps({
                     "observation": obs,
+                    "task_idx": task_idx,
                     "task_instruction": extract_instruction(obs),
                     "page_type": get_page_type(obs),
                     "all_prices_on_page": extract_all_prices(obs),

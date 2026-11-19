@@ -102,6 +102,8 @@ from typing import Dict, List, Tuple, Optional, Any, Union, get_origin, get_args
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+
+from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
 from copy import deepcopy
 from abc import ABC, abstractmethod
 from ast import literal_eval
@@ -2271,6 +2273,19 @@ def check_api_keys(victim_model: str, attacker_model: str,
 # MAIN
 # ==========================================
 def main():
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--secrets_file", "--secrets-file",
+                            default=str(DEFAULT_SECRETS_FILE))
+    pre_args, _ = pre_parser.parse_known_args()
+    try:
+        secrets_path, loaded_names = load_local_env(pre_args.secrets_file, override=True)
+    except ValueError as exc:
+        print(f"{RED}Invalid local configuration: {exc}{ENDC}")
+        return
+    if secrets_path.is_file():
+        logger.info("Loaded local configuration from %s (%s)", secrets_path,
+                    ", ".join(loaded_names) if loaded_names else "no values")
+
     aux_base_default = (
         os.environ.get("AUX_BASE_URL")
         or os.environ.get("OPENAI_BASE_URL")
@@ -2315,6 +2330,8 @@ Examples:
                         help="API key for the planner/judge endpoint")
     parser.add_argument("--aux_thinking", choices=["server", "on", "off"],
                         default=aux_thinking_default, help="Auxiliary model thinking mode")
+    parser.add_argument("--secrets_file", "--secrets-file", default=str(secrets_path),
+                        help="Machine-local KEY=VALUE file (loaded automatically)")
     
     # Dataset arguments
     parser.add_argument("--dataset", default="data/filtered_top_200_attacks.json",
@@ -2383,6 +2400,13 @@ Examples:
             })
         print(json.dumps(resolved, indent=2))
         print(f"Resolved {len(resolved)} Agent_SafetyBench attacks.")
+        return
+
+    try:
+        args.aux_api_key = validate_secret_value("auxiliary API key", args.aux_api_key)
+    except ValueError as exc:
+        print(f"{RED}{exc}.{ENDC}")
+        print(f"Fill DEEPSEEK_API_KEY once in: {secrets_path}")
         return
     
     # Check API keys

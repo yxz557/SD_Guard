@@ -74,6 +74,8 @@ from enum import Enum
 from pathlib import Path
 from abc import ABC, abstractmethod
 
+from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
+
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 from openai import OpenAI, BadRequestError, APIConnectionError
 
@@ -1602,6 +1604,19 @@ class AgentLABOrchestrator:
 # MAIN
 # ============================================================================
 def main():
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--secrets_file", "--secrets-file",
+                            default=str(DEFAULT_SECRETS_FILE))
+    pre_args, _ = pre_parser.parse_known_args()
+    try:
+        secrets_path, loaded_names = load_local_env(pre_args.secrets_file, override=True)
+    except ValueError as exc:
+        print(f"{RED}Invalid local configuration: {exc}{ENDC}")
+        return
+    if secrets_path.is_file():
+        logger.info("Loaded local configuration from %s (%s)", secrets_path,
+                    ", ".join(loaded_names) if loaded_names else "no values")
+
     aux_base_default = (
         os.environ.get("AUX_BASE_URL")
         or os.environ.get("OPENAI_BASE_URL")
@@ -1656,6 +1671,8 @@ EXAMPLES:
                         help="Auxiliary endpoint key (defaults to DEEPSEEK_API_KEY, then OPENAI_API_KEY)")
     parser.add_argument("--aux_thinking", choices=["server", "on", "off"],
                         default=aux_thinking_default, help="Auxiliary model thinking mode")
+    parser.add_argument("--secrets_file", "--secrets-file", default=str(secrets_path),
+                        help="Machine-local KEY=VALUE file (loaded automatically)")
 
     # Model overrides
     parser.add_argument("--openai_models", nargs='+', default=["gpt-5.1", "gpt-4.1", "gpt-4o"])
@@ -1697,6 +1714,13 @@ EXAMPLES:
                         help="Fail instead of silently running without persistent Mem0")
     parser.add_argument("--verbose", action="store_true", default=True)
     args = parser.parse_args()
+
+    try:
+        args.aux_api_key = validate_secret_value("auxiliary API key", args.aux_api_key)
+    except ValueError as exc:
+        print(f"{RED}{exc}.{ENDC}")
+        print(f"Fill DEEPSEEK_API_KEY once in: {secrets_path}")
+        return
 
     aux_model = args.aux_model or aux_model_default
     if (args.aux_base_url and "deepseek" in args.aux_base_url.lower()
