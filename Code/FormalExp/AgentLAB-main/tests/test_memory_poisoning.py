@@ -5,6 +5,7 @@ import json
 import sys
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -122,6 +123,28 @@ def bare_executor(require_mem0=True):
 
 
 class MemoryPoisoningTests(unittest.TestCase):
+    def test_mem0_cpu_thread_limits_override_large_inherited_pools(self):
+        try:
+            info = memory_poisoning.configure_mem0_cpu_threads(2)
+            self.assertEqual(info["configured_threads"], 2)
+            for name in memory_poisoning._MEM0_THREAD_ENV_VARS:
+                self.assertEqual(memory_poisoning.os.environ[name], "2")
+            self.assertEqual(
+                memory_poisoning.os.environ["TOKENIZERS_PARALLELISM"], "false",
+            )
+        finally:
+            memory_poisoning.configure_mem0_cpu_threads(1)
+
+    def test_native_thread_budget_fails_fast(self):
+        config = SimpleNamespace(mem0_max_native_threads=256)
+        with patch.object(
+            memory_poisoning, "native_thread_count", return_value=8324,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "8324 > 256"):
+                memory_poisoning.enforce_native_thread_budget(
+                    config, "memory_add:before",
+                )
+
     def test_mem0_result_normalization(self):
         item = {"id": "m1", "memory": "remember me"}
         self.assertEqual(memory_poisoning.mem0_result_items({"results": [item]}), [item])

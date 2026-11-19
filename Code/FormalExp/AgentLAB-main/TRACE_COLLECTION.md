@@ -176,6 +176,21 @@ All Memory Poisoning commands below must be launched from
 `/root/autodl-tmp/conda-envs/agentlab-memory`; leave the victim vLLM server in
 its original `sd4-vllm-cu130` terminal.
 
+The runner forces conservative CPU thread pools before importing Mem0. Keep
+this explicit export as a second guard on high-core servers; inherited values
+such as `OMP_NUM_THREADS=25` can otherwise create thousands of native threads
+during a long embedding loop:
+
+```bash
+export AGENTLAB_MEM0_CPU_THREADS=1
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1
+export TOKENIZERS_PARALLELISM=false
+```
+
 ## 4. Smoke-test commands
 
 Run these first. Each command should finish and write `raw_trace.json` plus its
@@ -330,6 +345,8 @@ python Memory-Poisoning.py \
   --mem0_embedder_model sentence-transformers/all-MiniLM-L6-v2 \
   --mem0_embedding_dims 384 \
   --mem0_embedder_device cpu \
+  --mem0_cpu_threads 1 \
+  --mem0_max_native_threads 256 \
   --mem0_vector_path "$MEMORY_ROOT/smoke/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_smoke \
   --data_path data/all_refused_combined_200.json \
@@ -594,6 +611,8 @@ python Memory-Poisoning.py \
   --mem0_embedder_model sentence-transformers/all-MiniLM-L6-v2 \
   --mem0_embedding_dims 384 \
   --mem0_embedder_device cpu \
+  --mem0_cpu_threads 1 \
+  --mem0_max_native_threads 256 \
   --mem0_vector_path "$MEMORY_ROOT/full/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_full \
   --data_path data/all_refused_combined_200.json \

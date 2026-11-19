@@ -1,5 +1,5 @@
 """
-AgentLAB Memory Injection Attack Framework v5.1 — Strict Mem0 Trace Edition
+AgentLAB Memory Injection Attack Framework v5.2 — Thread-Safe Mem0 Trace Edition
 =============================================================================
 Tests memory injection attacks against ALL major LLM providers in one run.
 
@@ -74,6 +74,28 @@ from enum import Enum
 from pathlib import Path
 from abc import ABC, abstractmethod
 
+# Hugging Face/SentenceTransformer embeddings are invoked many times in a full
+# Memory Poisoning run. Inherited large OpenMP pools can multiply across those
+# calls and exhaust the host's native-thread limit. Apply a conservative limit
+# before Mem0 (and therefore torch/transformers) is imported. Users may opt in
+# to another small value through AGENTLAB_MEM0_CPU_THREADS.
+try:
+    _EARLY_MEM0_CPU_THREADS = max(
+        1, int(os.environ.get("AGENTLAB_MEM0_CPU_THREADS", "1")))
+except (TypeError, ValueError):
+    _EARLY_MEM0_CPU_THREADS = 1
+
+_MEM0_THREAD_ENV_VARS = (
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+)
+for _thread_env_name in _MEM0_THREAD_ENV_VARS:
+    os.environ[_thread_env_name] = str(_EARLY_MEM0_CPU_THREADS)
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
 
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
@@ -124,6 +146,59 @@ BLUE, GREEN, YELLOW, RED, CYAN, MAGENTA, ENDC = (
 _mem0_lock = threading.Lock()
 _mem0_instance = None
 _mem0_initialized = False
+
+
+def native_thread_count():
+    """Best-effort count of OS threads owned by this runner process."""
+    try:
+        return len(list(Path("/proc/self/task").iterdir()))
+    except (FileNotFoundError, OSError):
+        return threading.active_count()
+
+
+def configure_mem0_cpu_threads(thread_count):
+    """Limit torch/BLAS pools used by the long-running Mem0 embedder."""
+    try:
+        thread_count = max(1, int(thread_count))
+    except (TypeError, ValueError):
+        thread_count = 1
+    for name in _MEM0_THREAD_ENV_VARS:
+        os.environ[name] = str(thread_count)
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+    torch_threads = None
+    torch_interop_threads = None
+    try:
+        import torch
+        torch.set_num_threads(thread_count)
+        try:
+            torch.set_num_interop_threads(1)
+        except RuntimeError:
+            # PyTorch permits setting this only before parallel work begins.
+            # The import-time environment limits above still remain effective.
+            pass
+        torch_threads = torch.get_num_threads()
+        torch_interop_threads = torch.get_num_interop_threads()
+    except ImportError:
+        pass
+    return {
+        "configured_threads": thread_count,
+        "torch_threads": torch_threads,
+        "torch_interop_threads": torch_interop_threads,
+        "native_threads": native_thread_count(),
+    }
+
+
+def enforce_native_thread_budget(config, stage):
+    """Fail fast before a thread leak makes the whole server unresponsive."""
+    current = native_thread_count()
+    limit = max(1, int(getattr(config, "mem0_max_native_threads", 256)))
+    if current > limit:
+        raise RuntimeError(
+            f"Mem0 native-thread budget exceeded at {stage}: "
+            f"{current} > {limit}. Stop this run and verify CPU thread limits."
+        )
+    return current
 
 
 class OpenAICompatibleMem0LLM:
@@ -183,6 +258,15 @@ def get_shared_mem0(config):
                     os.environ["OPENAI_API_KEY"] = config.openai_api_key
                     _mem0_instance = Memory()
                 else:
+                    thread_info = configure_mem0_cpu_threads(
+                        config.mem0_cpu_threads)
+                    print(
+                        "Mem0 CPU thread limits: "
+                        f"configured={thread_info['configured_threads']}, "
+                        f"torch={thread_info['torch_threads']}, "
+                        f"interop={thread_info['torch_interop_threads']}, "
+                        f"native={thread_info['native_threads']}"
+                    )
                     vector_path = Path(config.mem0_vector_path)
                     vector_path.parent.mkdir(parents=True, exist_ok=True)
                     history_path = vector_path.parent / "mem0_history.db"
@@ -471,6 +555,8 @@ class Config:
     mem0_embedder_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     mem0_embedding_dims: int = 384
     mem0_embedder_device: str = "cpu"
+    mem0_cpu_threads: int = 1
+    mem0_max_native_threads: int = 256
     mem0_vector_path: str = "./mem0_qdrant"
     mem0_collection_name: str = "agentlab_memory"
 
@@ -1113,6 +1199,8 @@ class AttackExecutor:
             for memory_index, m in enumerate(mems):
                 if m and m.content:
                     try:
+                        threads_before = enforce_native_thread_budget(
+                            self.config, f"memory_add[{memory_index}]:before")
                         result = self.mem_client.add(
                             m.content,
                             user_id=uid,
@@ -1122,6 +1210,8 @@ class AttackExecutor:
                             },
                             infer=False,
                         )
+                        threads_after = enforce_native_thread_budget(
+                            self.config, f"memory_add[{memory_index}]:after")
                         result_items = mem0_result_items(result)
                         memory_ids = [
                             mem0_item_id(item) for item in result_items
@@ -1138,6 +1228,8 @@ class AttackExecutor:
                             "memory_ids": memory_ids,
                             "stored_memories": stored_memories,
                             "valid": bool(memory_ids),
+                            "native_threads_before": threads_before,
+                            "native_threads_after": threads_after,
                         }
                         if not memory_ids:
                             event["error"] = "Mem0 add returned no stored memory ID"
@@ -1172,7 +1264,11 @@ class AttackExecutor:
         }
         if self.mem_client:
             try:
+                threads_before = enforce_native_thread_budget(
+                    self.config, "memory_search:before")
                 r = self.mem_client.search(query=instruction, user_id=uid, limit=10)
+                threads_after = enforce_native_thread_budget(
+                    self.config, "memory_search:after")
                 result_items = mem0_result_items(r)
                 retrieved = [
                     mem0_item_text(item) for item in result_items
@@ -1187,6 +1283,8 @@ class AttackExecutor:
                     "results": result_items,
                     "memory_ids": retrieved_ids,
                     "valid": bool(retrieved and retrieved_ids),
+                    "native_threads_before": threads_before,
+                    "native_threads_after": threads_after,
                 })
                 retrieval_source = "mem0_search" if retrieved else "none"
             except Exception as exc:
@@ -1400,6 +1498,8 @@ class AttackExecutor:
                         "embedder_model": self.config.mem0_embedder_model,
                         "embedding_dims": self.config.mem0_embedding_dims,
                         "strict_operations": self.config.require_mem0,
+                        "cpu_threads": self.config.mem0_cpu_threads,
+                        "max_native_threads": self.config.mem0_max_native_threads,
                     },
                 },
             )
@@ -1524,6 +1624,8 @@ Return exactly one JSON object with:
                 event["errors"].append("Mem0 client is unavailable")
             return event
         try:
+            event["native_threads_before"] = enforce_native_thread_budget(
+                self.config, "memory_cleanup:before")
             existing = mem0_result_items(self.mem_client.get_all(user_id=uid))
             memory_ids = [
                 mem0_item_id(item) for item in existing if mem0_item_id(item)
@@ -1536,6 +1638,8 @@ Return exactly one JSON object with:
                 except Exception as exc:
                     event["errors"].append(f"{memory_id}: {exc}")
             remaining = mem0_result_items(self.mem_client.get_all(user_id=uid))
+            event["native_threads_after"] = enforce_native_thread_budget(
+                self.config, "memory_cleanup:after")
             event["remaining"] = len(remaining)
             event["valid"] = not event["errors"] and not remaining
         except Exception as exc:
@@ -1780,6 +1884,8 @@ harmful_evidence (list), attack_success_score (1-5), and evaluation
                         "embedder_provider": "huggingface" if self.config.mem0_mode != "default" else "default",
                         "embedder_model": self.config.mem0_embedder_model,
                         "embedding_dims": self.config.mem0_embedding_dims,
+                        "cpu_threads": self.config.mem0_cpu_threads,
+                        "max_native_threads": self.config.mem0_max_native_threads,
                     },
                 },
             )
@@ -1804,7 +1910,7 @@ class SingleModelRunner:
             "metadata": {
                 "provider": provider,
                 "model": model_id,
-                "version": "5.1-agentlab-strict-memory",
+                "version": "5.2-agentlab-thread-safe-memory",
                 "strict_mem0": config.require_mem0,
             },
             "samples": [],
@@ -2002,7 +2108,7 @@ class AgentLABOrchestrator:
         return targets
 
     def run(self, data_path, providers, target_n, start_idx=0, parallel=True):
-        self.log.phase("AgentLAB MEMORY INJECTION ATTACK v5.1")
+        self.log.phase("AgentLAB MEMORY INJECTION ATTACK v5.2")
         with open(data_path) as f:
             samples = json.load(f)
         if not isinstance(samples, list): samples = [samples]
@@ -2039,7 +2145,7 @@ class AgentLABOrchestrator:
         # Summary
         self.log.phase("FINAL SUMMARY")
         print(f"\n{'='*70}")
-        print(f"AgentLAB MEMORY INJECTION ATTACK v5.1 — RESULTS")
+        print(f"AgentLAB MEMORY INJECTION ATTACK v5.2 — RESULTS")
         print(f"{'='*70}")
         print(f"{'Model':<40} {'Tested':<8} {'Success':<8} {'Rate':<10} {'Skipped':<8}")
         print("-" * 74)
@@ -2084,7 +2190,7 @@ def main():
     )
     aux_thinking_default = "off" if "deepseek" in aux_base_default.lower() else "server"
     parser = argparse.ArgumentParser(
-        description="AgentLAB Memory Injection Attack v5.1 (strict Mem0 traces)",
+        description="AgentLAB Memory Injection Attack v5.2 (thread-safe Mem0 traces)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 EXAMPLES:
@@ -2157,6 +2263,16 @@ EXAMPLES:
                         default="sentence-transformers/all-MiniLM-L6-v2")
     parser.add_argument("--mem0_embedding_dims", type=int, default=384)
     parser.add_argument("--mem0_embedder_device", default="cpu")
+    parser.add_argument(
+        "--mem0_cpu_threads", type=int,
+        default=_EARLY_MEM0_CPU_THREADS,
+        help=("CPU threads allowed for torch/BLAS Mem0 embeddings; keep at 1 "
+              "for long formal runs"),
+    )
+    parser.add_argument(
+        "--mem0_max_native_threads", type=int, default=256,
+        help="Fail fast if the runner exceeds this many native OS threads",
+    )
     parser.add_argument("--mem0_vector_path", default="./mem0_qdrant")
     parser.add_argument("--mem0_collection_name", default="agentlab_memory")
 
@@ -2183,6 +2299,11 @@ EXAMPLES:
     parser.set_defaults(require_mem0=True)
     parser.add_argument("--verbose", action="store_true", default=True)
     args = parser.parse_args()
+
+    if args.mem0_cpu_threads < 1:
+        parser.error("--mem0_cpu_threads must be at least 1")
+    if args.mem0_max_native_threads < 1:
+        parser.error("--mem0_max_native_threads must be at least 1")
 
     try:
         args.aux_api_key = validate_secret_value("auxiliary API key", args.aux_api_key)
@@ -2215,6 +2336,8 @@ EXAMPLES:
         mem0_embedder_model=args.mem0_embedder_model,
         mem0_embedding_dims=args.mem0_embedding_dims,
         mem0_embedder_device=args.mem0_embedder_device,
+        mem0_cpu_threads=args.mem0_cpu_threads,
+        mem0_max_native_threads=args.mem0_max_native_threads,
         mem0_vector_path=args.mem0_vector_path,
         mem0_collection_name=args.mem0_collection_name,
         local_model=args.local_model, local_url=args.local_url,
@@ -2238,7 +2361,7 @@ EXAMPLES:
         print(f"{RED}--local_model required{ENDC}"); return
 
     print(f"\n{GREEN}{'='*70}")
-    print("AgentLAB MEMORY INJECTION ATTACK v5.1")
+    print("AgentLAB MEMORY INJECTION ATTACK v5.2")
     print(f"{'='*70}{ENDC}")
     print(f"Data      : {args.data_path}")
     print(f"Targets   : {args.targets}")
@@ -2247,6 +2370,8 @@ EXAMPLES:
     print(f"Strategies: {args.num_strategies}")
     print(f"Auxiliary : {aux_model} @ {args.aux_base_url or 'https://api.openai.com/v1'}")
     print(f"Mem0      : {args.mem0_mode} | embedder={args.mem0_embedder_model}")
+    print(f"Mem0 CPU  : {args.mem0_cpu_threads} thread(s) | "
+          f"native guard={args.mem0_max_native_threads}")
     print(f"Strict Mem0 operations: {args.require_mem0}")
     if 'openai' in args.targets: print(f"  OpenAI   : {args.openai_models}")
     if 'anthropic' in args.targets: print(f"  Anthropic: {args.anthropic_models}")
