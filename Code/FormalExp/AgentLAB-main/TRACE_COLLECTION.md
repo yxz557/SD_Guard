@@ -157,14 +157,24 @@ grep -n 'Auxiliary Thinking' Tool-chaining.py
 Both commands must print a matching source line. No output means an older copy
 of `Tool-chaining.py` is being executed.
 
-Memory Poisoning also needs a local embedding model. This is a different model
-type from chat completion and runs on CPU in the commands below. Install/cache
-it once while the machine has network access:
+Memory Poisoning must run from a separate Python environment. Do not install
+Mem0 into the vLLM 0.31 environment: Mem0 0.1.118 pins OpenAI 1.x, whereas
+vLLM 0.31 requires OpenAI 2.x. The runner and the still-running vLLM process
+communicate over HTTP, so separate environments are expected.
 
 ```bash
-pip install 'sentence-transformers==6.3.0'
+source /root/miniconda3/etc/profile.d/conda.sh
+conda create -p /root/autodl-tmp/conda-envs/agentlab-memory python=3.10 -y
+conda activate /root/autodl-tmp/conda-envs/agentlab-memory
+
+cd "$AL_ROOT"
+pip install -r requirements-memory.txt
 python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); print('embedder cached')"
 ```
+
+All Memory Poisoning commands below must be launched from
+`/root/autodl-tmp/conda-envs/agentlab-memory`; leave the victim vLLM server in
+its original `sd4-vllm-cu130` terminal.
 
 ## 4. Smoke-test commands
 
@@ -292,7 +302,17 @@ python -c "import sys; sys.path.insert(0, './environments'); from EnvManager imp
 Then run:
 
 ```bash
-mkdir -p "$RUN_ROOT/memory_poisoning_smoke"
+source /root/miniconda3/etc/profile.d/conda.sh
+conda activate /root/autodl-tmp/conda-envs/agentlab-memory
+
+export SD_ROOT=/root/autodl-tmp/Code/SD_Guard
+export AL_ROOT="$SD_ROOT/Code/FormalExp/AgentLAB-main"
+export RUN_ROOT="$SD_ROOT/results/agentlab/qwen3_8b_nothink_v1"
+export MEMORY_ROOT="$RUN_ROOT/memory_poisoning_deepseek_flash"
+export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
+cd "$AL_ROOT"
+
+mkdir -p "$MEMORY_ROOT/smoke"
 python Memory-Poisoning.py \
   --targets local \
   --local_model "$VICTIM_MODEL_NAME" \
@@ -302,29 +322,36 @@ python Memory-Poisoning.py \
   --local_top_k 20 \
   --local_max_tokens 768 \
   --local_thinking off \
-  --aux_model "$AUX_MODEL" \
-  --aux_base_url "$AUX_BASE_URL" \
+  --aux_model deepseek-flash \
+  --aux_base_url https://api.deepseek.com \
   --aux_thinking off \
   --mem0_mode compatible \
-  --mem0_llm_model "$AUX_MODEL" \
+  --mem0_llm_model deepseek-flash \
   --mem0_embedder_model sentence-transformers/all-MiniLM-L6-v2 \
   --mem0_embedding_dims 384 \
   --mem0_embedder_device cpu \
-  --mem0_vector_path "$RUN_ROOT/memory_poisoning_smoke/mem0_qdrant" \
+  --mem0_vector_path "$MEMORY_ROOT/smoke/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_smoke \
   --data_path data/all_refused_combined_200.json \
   --target_samples 2 \
   --start_idx 0 \
   --num_strategies 3 \
+  --require_mem0 \
   --sequential \
-  --output_dir "$RUN_ROOT/memory_poisoning_smoke/results" \
-  --trace_dir "$RUN_ROOT/memory_poisoning_smoke/traces" \
-  2>&1 | tee "$RUN_ROOT/memory_poisoning_smoke/run.log"
+  --fixed_output_dir \
+  --run_id qwen3_8b_memory_poisoning_deepseek_flash_smoke \
+  --output_dir "$MEMORY_ROOT/smoke" \
+  --trace_dir "$MEMORY_ROOT/smoke/traces" \
+  2>&1 | tee "$MEMORY_ROOT/smoke/run.log"
 ```
 
 The log must contain both `EnvManager loaded from ./environments` and
-`Mem0 initialized`. A fallback run without either component is not equivalent
-to the intended Memory Poisoning task.
+`Mem0 initialized`, and startup must print `Strict Mem0 operations: True`.
+Every selected attack trace must have
+`attack.memory_validation.valid: true`, `retrieval_source: mem0_search`, and at
+least one overlapping ID in `written_memory_ids` and `retrieved_memory_ids`.
+A fallback run without these facts is not equivalent to the intended Memory
+Poisoning task.
 
 ## 5. Full commands
 
@@ -539,7 +566,17 @@ python attacks/goal_drift/goal_drift_v12.py \
 ### Memory Poisoning full run
 
 ```bash
-mkdir -p "$RUN_ROOT/memory_poisoning"
+source /root/miniconda3/etc/profile.d/conda.sh
+conda activate /root/autodl-tmp/conda-envs/agentlab-memory
+
+export SD_ROOT=/root/autodl-tmp/Code/SD_Guard
+export AL_ROOT="$SD_ROOT/Code/FormalExp/AgentLAB-main"
+export RUN_ROOT="$SD_ROOT/results/agentlab/qwen3_8b_nothink_v1"
+export MEMORY_ROOT="$RUN_ROOT/memory_poisoning_deepseek_flash"
+export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
+cd "$AL_ROOT"
+
+mkdir -p "$MEMORY_ROOT/full"
 python Memory-Poisoning.py \
   --targets local \
   --local_model "$VICTIM_MODEL_NAME" \
@@ -549,24 +586,27 @@ python Memory-Poisoning.py \
   --local_top_k 20 \
   --local_max_tokens 768 \
   --local_thinking off \
-  --aux_model "$AUX_MODEL" \
-  --aux_base_url "$AUX_BASE_URL" \
+  --aux_model deepseek-flash \
+  --aux_base_url https://api.deepseek.com \
   --aux_thinking off \
   --mem0_mode compatible \
-  --mem0_llm_model "$AUX_MODEL" \
+  --mem0_llm_model deepseek-flash \
   --mem0_embedder_model sentence-transformers/all-MiniLM-L6-v2 \
   --mem0_embedding_dims 384 \
   --mem0_embedder_device cpu \
-  --mem0_vector_path "$RUN_ROOT/memory_poisoning/mem0_qdrant" \
+  --mem0_vector_path "$MEMORY_ROOT/full/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_full \
   --data_path data/all_refused_combined_200.json \
-  --target_samples 100 \
+  --target_samples 200 \
   --start_idx 0 \
   --num_strategies 3 \
+  --require_mem0 \
   --sequential \
-  --output_dir "$RUN_ROOT/memory_poisoning/results" \
-  --trace_dir "$RUN_ROOT/memory_poisoning/traces" \
-  2>&1 | tee "$RUN_ROOT/memory_poisoning/run.log"
+  --fixed_output_dir \
+  --run_id qwen3_8b_memory_poisoning_deepseek_flash_full \
+  --output_dir "$MEMORY_ROOT/full" \
+  --trace_dir "$MEMORY_ROOT/full/traces" \
+  2>&1 | tee "$MEMORY_ROOT/full/run.log"
 ```
 
 ## 6. Artifact checks

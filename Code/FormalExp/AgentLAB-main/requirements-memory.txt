@@ -1,0 +1,9 @@
+# Install this file in a dedicated runner environment, not in the vLLM 0.31
+# environment. Mem0 0.1.118 requires OpenAI 1.x, while vLLM 0.31 requires
+# OpenAI >=2.25. The vLLM server and this runner communicate over HTTP.
+openai==1.109.1
+protobuf==5.29.6
+mem0ai==0.1.118
+qdrant-client==1.15.1
+sentence-transformers==6.3.0
+tenacity==9.1.2

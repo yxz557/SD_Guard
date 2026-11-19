@@ -271,8 +271,8 @@ The attack uses an **adaptive rewriting loop**: if intermediate bridging actions
 Targets agents equipped with external memory (Mem0). Hidden prompt injections embedded in routine content (emails, code comments, product descriptions) are stored as user preferences and later retrieved to override safety behaviors.
 
 ```bash
-# All API victims (default)
-python Memory-Poisoning.py --target_samples 100
+# All 200 dataset rows (strict persistent-memory validation is the default)
+python Memory-Poisoning.py --target_samples 200 --require_mem0
 
 # Specific providers
 python Memory-Poisoning.py \
@@ -283,7 +283,8 @@ python Memory-Poisoning.py \
 python Memory-Poisoning.py \
     --targets local \
     --local_model Qwen/Qwen3-30B-A3B \
-    --local_url http://localhost:8001/v1
+    --local_url http://localhost:8001/v1 \
+    --require_mem0
 
 # All providers in parallel
 python Memory-Poisoning.py \
@@ -296,9 +297,11 @@ python Memory-Poisoning.py \
 | Argument | Default | Description |
 |---|---|---|
 | `--targets` | `openai anthropic google` | Provider(s) to attack |
-| `--target_samples` | 100 | Number of samples per provider |
+| `--target_samples` | 200 | Maximum eligible samples per provider |
 | `--num_strategies` | 3 | Injection strategies per sample |
 | `--data_path` | `./data/all_refused_combined_200.json` | Dataset path |
+| `--require_mem0` | enabled | Reject traces whose Mem0 cleanup/write/search chain is invalid |
+| `--allow_mem0_fallback` | disabled | Debug only; output is not formal Memory Poisoning data |
 
 The attack operates in two phases: (1) **memory injection** — evasive preference statements are crafted and scored by an evasiveness judge (minimum 3.5/5.0), then injected into agent-accessible environments; (2) **exploitation** — retrieved poisoned memories provide false context that disables safety filtering on a target harmful request.
 
