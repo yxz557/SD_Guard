@@ -59,8 +59,8 @@ V12_VICTIMS = {
         "requires_vllm": True,
     },
     "qwen": {
-        "display": "Qwen3-30B-A3B (vLLM)",
-        "args": ["--victim_model", "Qwen/Qwen3-30B-A3B",
+        "display": "Qwen3-8B (vLLM)",
+        "args": ["--victim_model", "Qwen/Qwen3-8B",
                  "--victim_base_url", "http://localhost:8001/v1",
                  "--victim_api_key", "EMPTY"],
         "requires_vllm": True,

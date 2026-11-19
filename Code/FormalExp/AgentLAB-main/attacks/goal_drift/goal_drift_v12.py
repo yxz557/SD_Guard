@@ -127,6 +127,7 @@ class Config:
     num_products: Optional[int] = None
     num_tasks: int = 100
     num_seeds: int = 3
+    task_sampling_seed: int = 20261119
     max_steps_per_task: int = 15
     attack_strategy: str = "optimized"
     output_file: str = ""  # auto-generated if empty
@@ -812,7 +813,8 @@ class ExperimentRunner:
         if self.config.attack_strategy in ["optimized","evolved"]: self.attacker.initialize()
 
         available=min(self.env.num_tasks,12087)
-        task_indices=random.sample(range(available),min(self.config.num_tasks,available))
+        task_indices=random.Random(self.config.task_sampling_seed).sample(
+            range(available), min(self.config.num_tasks, available))
 
         print_header("PHASE 1: BASELINE")
         baseline=self._run_condition(task_indices,"baseline")
@@ -935,6 +937,7 @@ class ExperimentRunner:
                 provenance={
                     "run_id": self.config.trace_run_id,
                     "seed": seed,
+                    "task_sampling_seed": self.config.task_sampling_seed,
                     "runner": "attacks/goal_drift/goal_drift_v12.py",
                     "recorded_at": datetime.now().isoformat(),
                     "auxiliary_models": {
@@ -1018,6 +1021,10 @@ def main():
                    help="Auxiliary reasoning mode; DeepSeek on/off is sent per request")
     p.add_argument("--num_tasks",type=int,default=100)
     p.add_argument("--num_seeds",type=int,default=3)
+    p.add_argument("--sample_seed",type=int,default=20261119,
+                   help="Seed used to choose WebShop task indices")
+    p.add_argument("--run_id",type=str,default="",
+                   help="Stable trace run ID (auto-generated when omitted)")
     p.add_argument("--output",type=str,default="")
     p.add_argument("--trace_dir",type=str,default="",help="Raw trace root (default: goal_drift_traces/<run_id>)")
     p.add_argument("--memory_file",type=str,default="injection_memory_v12.json")
@@ -1050,7 +1057,8 @@ def main():
 
     if not a.aux_api_key: print("Set DEEPSEEK_API_KEY/OPENAI_API_KEY or pass --aux_api_key"); sys.exit(1)
 
-    trace_run_id=f"goal_drift_v12_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    trace_run_id=(a.run_id
+                  or f"goal_drift_v12_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}")
     trace_dir=a.trace_dir or str(Path("goal_drift_traces")/trace_run_id)
     config=Config(victim_model=a.victim_model,victim_base_url=a.victim_base_url,victim_api_key=a.victim_api_key,
                   victim_temperature=a.victim_temperature,victim_top_p=a.victim_top_p,victim_top_k=a.victim_top_k,
@@ -1059,7 +1067,8 @@ def main():
                   extractor_model=a.extractor_model,stealthiness_model=a.stealthiness_model,
                   auxiliary_base_url=a.aux_base_url,auxiliary_api_key=a.aux_api_key,
                   auxiliary_thinking=a.aux_thinking,
-                  num_tasks=a.num_tasks,num_seeds=a.num_seeds,output_file=a.output,trace_dir=trace_dir,trace_run_id=trace_run_id,memory_file=a.memory_file,
+                  num_tasks=a.num_tasks,num_seeds=a.num_seeds,task_sampling_seed=a.sample_seed,
+                  output_file=a.output,trace_dir=trace_dir,trace_run_id=trace_run_id,memory_file=a.memory_file,
                   attack_strategy=a.strategy,optimize_iterations=a.optimize_iterations,
                   injection_count_item=a.injection_count_item,success_weight_multiplier=a.success_weight,verbose=a.verbose)
     ExperimentRunner(config).run()
