@@ -369,19 +369,19 @@ python Memory-Poisoning.py \
 ```
 
 The log must contain both `EnvManager loaded from ./environments` and
-`Mem0 initialized`, and startup must print `Strict Mem0 operations: True`.
-Every selected attack trace must have
-`attack.memory_validation.valid: true`, `retrieval_source: mem0_search`, and at
-least one overlapping ID in `written_memory_ids` and `retrieved_memory_ids`.
-A fallback run without these facts is not equivalent to the intended Memory
-Poisoning task.
+`Mem0 initialized`, and startup must print `Mem0 required at startup: True`.
+Each attack trace records the actual cleanup, Mem0 writes, and search result in
+`attack.injection_events` and `attack.memory_search`. `retrieval_source` may be
+`mem0_search` or `generated_memory_fallback`: the latter is the official
+best-effort behavior when a per-episode search returns nothing, and is recorded
+rather than silently replacing the victim episode.
 
 The standard trace-collection path is serial (`--sample_workers 1`, the
 default), matching official AgentLAB source-row execution. The optional
-source-worker processes, native-thread guard, and strict relevance gate are
-diagnostics for later stress/curation experiments; they are deliberately not
-enabled for the raw SD_Guard trace campaign. The run still requires real Mem0
-write/search and records that evidence in every raw trace.
+source-worker processes and native-thread guard are diagnostics for later
+stress experiments; they are deliberately not enabled for the raw trace
+campaign. The run records all Mem0 write/search evidence without using it to
+discard an episode.
 
 ## 5. Full commands
 
@@ -657,6 +657,16 @@ Verify every checksum:
 while IFS= read -r -d '' f; do
   (cd "$(dirname "$f")" && sha256sum -c "$(basename "$f")") || exit 1
 done < <(find "$RUN_ROOT" -name raw_trace.sha256 -print0)
+```
+
+For Memory Poisoning, inspect the completed-run index as well. It is not a
+ground-truth file: `evaluation.judge_output` is the online runner judge and
+every raw trace remains `label_status: pending`.
+
+```bash
+test -f "$MEMORY_ROOT/full/results/results.json"
+test -f "$MEMORY_ROOT/full/results/trace_manifest.jsonl"
+wc -l "$MEMORY_ROOT/full/results/trace_manifest.jsonl"
 ```
 
 For each track also inspect at least one JSON file and confirm:

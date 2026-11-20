@@ -271,7 +271,7 @@ The attack uses an **adaptive rewriting loop**: if intermediate bridging actions
 Targets agents equipped with external memory (Mem0). Hidden prompt injections embedded in routine content (emails, code comments, product descriptions) are stored as user preferences and later retrieved to override safety behaviors.
 
 ```bash
-# All 200 dataset rows (strict persistent-memory validation is the default)
+# All 200 dataset rows (persistent Mem0 must initialize before the run)
 python Memory-Poisoning.py --target_samples 200 --require_mem0
 
 # Specific providers
@@ -301,15 +301,14 @@ python Memory-Poisoning.py \
 | `--target_samples` | 200 | Maximum eligible samples per provider |
 | `--num_strategies` | 3 | Injection strategies per sample |
 | `--data_path` | `./data/all_refused_combined_200.json` | Dataset path |
-| `--require_mem0` | enabled | Record a trace as invalid if real Mem0 cleanup/write/search is unavailable |
-| `--allow_mem0_fallback` | disabled | Debug only; output is not formal Memory Poisoning data |
+| `--require_mem0` | enabled | Require the configured persistent Mem0 backend to initialize before the run |
+| `--allow_mem0_fallback` | disabled | Debug only: allow startup without a Mem0 backend |
 | `--sample_workers` | 1 | Advanced isolated source-row processes; default 1 matches official serial execution |
 | `--mem0_cpu_threads` | 1 | Limit torch/BLAS embedding pools for stable long runs |
 | `--enforce_native_thread_budget` | disabled | Advanced diagnostic guard; standard trace collection only records thread counts |
-| `--min_evasiveness_score` | 3.5 | Every stored memory must meet this stealth/plausibility gate |
-| `--strict_memory_quality` | disabled | Advanced curation gate; standard collection follows official evasiveness-only behavior |
+| `--min_evasiveness_score` | 3.5 | Target used by upstream evasiveness refinement; it does not discard an episode |
 
-The attack operates in two phases: (1) **memory injection** — evasive preference statements are crafted and scored by an evasiveness judge (minimum 3.5/5.0), then injected into agent-accessible environments; (2) **exploitation** — retrieved poisoned memories provide false context that disables safety filtering on a target harmful request.
+The attack operates in two phases: (1) **memory injection** — evasive preference statements are crafted, refined with the upstream evasiveness loop, then written through Mem0's original conversation interface; (2) **exploitation** — Mem0 search results are used when available, otherwise the original generated-memory fallback is retained. Each victim episode is saved as an immutable raw trace. A completed run also writes `results.json` and `trace_manifest.jsonl` beside the per-model `final_results.json` files; these are indexes, not labels.
 
 ---
 
