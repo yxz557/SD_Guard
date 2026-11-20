@@ -66,6 +66,7 @@ import time
 import traceback
 import threading
 import concurrent.futures
+import importlib
 from datetime import datetime
 from copy import deepcopy
 from dataclasses import dataclass, field, asdict, replace
@@ -149,6 +150,35 @@ BLUE, GREEN, YELLOW, RED, CYAN, MAGENTA, ENDC = (
 _mem0_lock = threading.Lock()
 _mem0_instance = None
 _mem0_initialized = False
+
+
+def configure_mem0_runtime_dir(config):
+    """Isolate every Mem0 process's hidden migration/telemetry state.
+
+    Mem0 honors ``MEM0_DIR``, but caches that setting in module globals at
+    import time.  The runner imports Mem0 in the parent process before
+    ProcessPool workers are forked, so changing only ``os.environ`` in a
+    worker is too late.  Update the three relevant loaded module globals as
+    well.  Without this, otherwise isolated workers still contend for
+    ``/root/.mem0/migrations_qdrant``.
+    """
+    runtime_dir = Path(config.mem0_vector_path).parent / "mem0_runtime"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    runtime_dir_text = str(runtime_dir)
+    os.environ["MEM0_DIR"] = runtime_dir_text
+    setattr(config, "_mem0_runtime_dir", runtime_dir_text)
+    try:
+        for module_name in (
+            "mem0.configs.base",
+            "mem0.memory.setup",
+            "mem0.memory.main",
+        ):
+            module = importlib.import_module(module_name)
+            setattr(module, "mem0_dir", runtime_dir_text)
+    except ImportError:
+        # get_shared_mem0() will provide the formal require_mem0 failure.
+        pass
+    return runtime_dir_text
 
 
 def native_thread_count():
@@ -274,6 +304,8 @@ def get_shared_mem0(config):
     with _mem0_lock:
         if not _mem0_initialized:
             try:
+                runtime_dir = configure_mem0_runtime_dir(config)
+                print(f"Mem0 runtime directory: {runtime_dir}")
                 mode = config.mem0_mode
                 if mode == "auto":
                     mode = "compatible" if config.auxiliary_base_url else "default"
@@ -604,7 +636,7 @@ class Config:
     # plus the Python caller.  This is an absolute emergency cap; normal
     # growth is bounded more tightly by ``mem0_native_thread_headroom``.
     mem0_max_native_threads: int = 2048
-    mem0_native_thread_headroom: int = 128
+    mem0_native_thread_headroom: int = 256
     mem0_vector_path: str = "./mem0_qdrant"
     mem0_collection_name: str = "agentlab_memory"
 
@@ -1700,6 +1732,8 @@ class AttackExecutor:
                         "embedding_dims": self.config.mem0_embedding_dims,
                         "vector_path": self.config.mem0_vector_path,
                         "collection_name": self.config.mem0_collection_name,
+                        "runtime_dir": getattr(
+                            self.config, "_mem0_runtime_dir", None),
                         "strict_operations": self.config.require_mem0,
                         "cpu_threads": self.config.mem0_cpu_threads,
                         "max_native_threads": self.config.mem0_max_native_threads,
@@ -2092,6 +2126,8 @@ harmful_evidence (list), attack_success_score (1-5), and evaluation
                         "embedding_dims": self.config.mem0_embedding_dims,
                         "vector_path": self.config.mem0_vector_path,
                         "collection_name": self.config.mem0_collection_name,
+                        "runtime_dir": getattr(
+                            self.config, "_mem0_runtime_dir", None),
                         "cpu_threads": self.config.mem0_cpu_threads,
                         "max_native_threads": self.config.mem0_max_native_threads,
                         "native_thread_headroom": self.config.mem0_native_thread_headroom,
@@ -2714,7 +2750,7 @@ EXAMPLES:
               "bounded relative to the recorded Mem0 baseline"),
     )
     parser.add_argument(
-        "--mem0_native_thread_headroom", type=int, default=128,
+        "--mem0_native_thread_headroom", type=int, default=256,
         help=("Maximum native-thread growth allowed above the Mem0 baseline "
               "before the absolute cap is considered"),
     )

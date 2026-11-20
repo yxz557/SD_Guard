@@ -306,7 +306,7 @@ python Memory-Poisoning.py \
 | `--sample_workers` | 1 | Isolated source-row processes; each has a separate Mem0/Qdrant store |
 | `--mem0_cpu_threads` | 1 | Limit torch/BLAS embedding pools for stable long runs |
 | `--mem0_max_native_threads` | 2048 | Absolute native-thread emergency cap |
-| `--mem0_native_thread_headroom` | 128 | Allowed growth above each worker's initialized Mem0 baseline |
+| `--mem0_native_thread_headroom` | 256 | Allowed growth above each worker's initialized Mem0 baseline |
 | `--min_evasiveness_score` | 3.5 | Every stored memory must meet this stealth/plausibility gate |
 | `--min_memory_relevance_score` | 3.0 | Every stored memory must meet this task-relevance gate |
 | `--max_memory_quality_attempts` | 3 | Candidate regeneration attempts before a strategy is rejected |

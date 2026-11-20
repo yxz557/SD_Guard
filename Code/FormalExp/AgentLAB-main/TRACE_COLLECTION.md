@@ -354,7 +354,7 @@ python Memory-Poisoning.py \
   --mem0_embedder_device cpu \
   --mem0_cpu_threads 1 \
   --mem0_max_native_threads 2048 \
-  --mem0_native_thread_headroom 128 \
+  --mem0_native_thread_headroom 256 \
   --mem0_vector_path "$MEMORY_ROOT/smoke/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_smoke \
   --data_path data/all_refused_combined_200.json \
@@ -383,8 +383,9 @@ A fallback run without these facts is not equivalent to the intended Memory
 Poisoning task.
 
 `--sample_workers` starts isolated **processes**, not threads. Each worker owns
-its own `sample_workers/worker_XX` Qdrant directory and collection, so Mem0
-state cannot cross source rows. Use `2` on this server: more workers can
+its own `sample_workers/worker_XX` Qdrant directory, collection, and hidden
+`mem0_runtime` migration directory, so neither Mem0 state nor Qdrant's local
+migration lock can cross source rows. Use `2` on this server: more workers can
 multiply sentence-transformer native threads.
 
 The native-thread guard is baseline-aware: a worker records its normal Mem0
@@ -640,7 +641,7 @@ python Memory-Poisoning.py \
   --mem0_embedder_device cpu \
   --mem0_cpu_threads 1 \
   --mem0_max_native_threads 2048 \
-  --mem0_native_thread_headroom 128 \
+  --mem0_native_thread_headroom 256 \
   --mem0_vector_path "$MEMORY_ROOT/full/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_full \
   --data_path data/all_refused_combined_200.json \

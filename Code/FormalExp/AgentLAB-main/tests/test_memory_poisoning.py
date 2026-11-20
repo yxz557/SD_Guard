@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import patch
@@ -202,6 +203,32 @@ class MemoryPoisoningTests(unittest.TestCase):
         self.assertEqual(
             worker_one.mem0_collection_name, "agentlab_memory_full_worker_01",
         )
+
+    def test_mem0_runtime_directory_isolated_from_global_home(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = memory_poisoning.Config(
+                mem0_vector_path=str(
+                    Path(temp_dir) / "worker_00" / "mem0_qdrant"),
+            )
+            previous_mem0_dir = memory_poisoning.os.environ.get("MEM0_DIR")
+            try:
+                with patch.object(
+                    memory_poisoning.importlib, "import_module",
+                    side_effect=ImportError,
+                ):
+                    runtime_dir = memory_poisoning.configure_mem0_runtime_dir(config)
+            finally:
+                if previous_mem0_dir is None:
+                    memory_poisoning.os.environ.pop("MEM0_DIR", None)
+                else:
+                    memory_poisoning.os.environ["MEM0_DIR"] = previous_mem0_dir
+
+            self.assertEqual(
+                runtime_dir,
+                str(Path(temp_dir) / "worker_00" / "mem0_runtime"),
+            )
+            self.assertTrue(Path(runtime_dir).is_dir())
+            self.assertEqual(config._mem0_runtime_dir, runtime_dir)
 
     def test_sample_worker_shards_are_disjoint_and_preserve_source_cap(self):
         samples = [{"_agentlab_row_index": index} for index in range(8)]
