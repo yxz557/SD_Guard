@@ -351,7 +351,8 @@ python Memory-Poisoning.py \
   --mem0_embedding_dims 384 \
   --mem0_embedder_device cpu \
   --mem0_cpu_threads 1 \
-  --mem0_max_native_threads 512 \
+  --mem0_max_native_threads 2048 \
+  --mem0_native_thread_headroom 128 \
   --mem0_vector_path "$MEMORY_ROOT/smoke/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_smoke \
   --data_path data/all_refused_combined_200.json \
@@ -359,6 +360,9 @@ python Memory-Poisoning.py \
   --start_idx 0 \
   --sample_workers 2 \
   --num_strategies 3 \
+  --min_evasiveness_score 3.5 \
+  --min_memory_relevance_score 3.0 \
+  --max_memory_quality_attempts 3 \
   --require_mem0 \
   --sequential \
   --fixed_output_dir \
@@ -380,6 +384,13 @@ Poisoning task.
 its own `sample_workers/worker_XX` Qdrant directory and collection, so Mem0
 state cannot cross source rows. Use `2` on this server: more workers can
 multiply sentence-transformer native threads.
+
+The native-thread guard is baseline-aware: a worker records its normal Mem0
+thread footprint, permits only `--mem0_native_thread_headroom` additional
+threads, and still stops at `--mem0_max_native_threads`. A memory must also
+pass both the evasiveness and task-relevance gates before it is written to
+Mem0 or the victim is called; rejected candidates are retained only as result
+metadata, never formal victim traces.
 
 ## 5. Full commands
 
@@ -624,7 +635,8 @@ python Memory-Poisoning.py \
   --mem0_embedding_dims 384 \
   --mem0_embedder_device cpu \
   --mem0_cpu_threads 1 \
-  --mem0_max_native_threads 512 \
+  --mem0_max_native_threads 2048 \
+  --mem0_native_thread_headroom 128 \
   --mem0_vector_path "$MEMORY_ROOT/full/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_full \
   --data_path data/all_refused_combined_200.json \
@@ -632,6 +644,9 @@ python Memory-Poisoning.py \
   --start_idx 0 \
   --sample_workers 2 \
   --num_strategies 3 \
+  --min_evasiveness_score 3.5 \
+  --min_memory_relevance_score 3.0 \
+  --max_memory_quality_attempts 3 \
   --require_mem0 \
   --sequential \
   --fixed_output_dir \
