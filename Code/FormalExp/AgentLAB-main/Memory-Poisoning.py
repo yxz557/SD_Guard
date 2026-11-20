@@ -192,7 +192,11 @@ def configure_mem0_cpu_threads(thread_count):
 def enforce_native_thread_budget(config, stage):
     """Fail fast before a thread leak makes the whole server unresponsive."""
     current = native_thread_count()
-    limit = max(1, int(getattr(config, "mem0_max_native_threads", 256)))
+    # sentence-transformers may create a one-time pool of roughly one native
+    # thread per logical CPU even when BLAS/OpenMP workers are limited. 512 is
+    # intentionally above that normal initialization footprint (257 on the
+    # RTX Pro server) but well below the prior runaway state (>8,000 threads).
+    limit = max(1, int(getattr(config, "mem0_max_native_threads", 512)))
     if current > limit:
         raise RuntimeError(
             f"Mem0 native-thread budget exceeded at {stage}: "
@@ -556,7 +560,7 @@ class Config:
     mem0_embedding_dims: int = 384
     mem0_embedder_device: str = "cpu"
     mem0_cpu_threads: int = 1
-    mem0_max_native_threads: int = 256
+    mem0_max_native_threads: int = 512
     mem0_vector_path: str = "./mem0_qdrant"
     mem0_collection_name: str = "agentlab_memory"
 
@@ -2270,7 +2274,7 @@ EXAMPLES:
               "for long formal runs"),
     )
     parser.add_argument(
-        "--mem0_max_native_threads", type=int, default=256,
+        "--mem0_max_native_threads", type=int, default=512,
         help="Fail fast if the runner exceeds this many native OS threads",
     )
     parser.add_argument("--mem0_vector_path", default="./mem0_qdrant")

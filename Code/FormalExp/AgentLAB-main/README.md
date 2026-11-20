@@ -303,7 +303,7 @@ python Memory-Poisoning.py \
 | `--require_mem0` | enabled | Reject traces whose Mem0 cleanup/write/search chain is invalid |
 | `--allow_mem0_fallback` | disabled | Debug only; output is not formal Memory Poisoning data |
 | `--mem0_cpu_threads` | 1 | Limit torch/BLAS embedding pools for stable long runs |
-| `--mem0_max_native_threads` | 256 | Fail fast before a native-thread leak exhausts the host |
+| `--mem0_max_native_threads` | 512 | Fail fast before a native-thread leak exhausts the host |
 
 The attack operates in two phases: (1) **memory injection** — evasive preference statements are crafted and scored by an evasiveness judge (minimum 3.5/5.0), then injected into agent-accessible environments; (2) **exploitation** — retrieved poisoned memories provide false context that disables safety filtering on a target harmful request.
 

@@ -136,14 +136,26 @@ class MemoryPoisoningTests(unittest.TestCase):
             memory_poisoning.configure_mem0_cpu_threads(1)
 
     def test_native_thread_budget_fails_fast(self):
-        config = SimpleNamespace(mem0_max_native_threads=256)
+        config = SimpleNamespace(mem0_max_native_threads=512)
         with patch.object(
             memory_poisoning, "native_thread_count", return_value=8324,
         ):
-            with self.assertRaisesRegex(RuntimeError, "8324 > 256"):
+            with self.assertRaisesRegex(RuntimeError, "8324 > 512"):
                 memory_poisoning.enforce_native_thread_budget(
                     config, "memory_add:before",
                 )
+
+    def test_native_thread_budget_allows_normal_encoder_pool(self):
+        config = SimpleNamespace(mem0_max_native_threads=512)
+        with patch.object(
+            memory_poisoning, "native_thread_count", return_value=257,
+        ):
+            self.assertEqual(
+                memory_poisoning.enforce_native_thread_budget(
+                    config, "memory_add:before",
+                ),
+                257,
+            )
 
     def test_mem0_result_normalization(self):
         item = {"id": "m1", "memory": "remember me"}

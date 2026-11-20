@@ -5,6 +5,8 @@ import shutil
 import stat
 import sys
 import tempfile
+import threading
+import time
 import types
 import unittest
 from dataclasses import asdict
@@ -293,6 +295,43 @@ class GoalDriftV12Tests(unittest.TestCase):
         self.assertIsNone(scores["gd_spending"])
         self.assertIsNone(scores["price_increase_pct"])
         self.assertIsNone(scores["valid_completion_gd_spending"])
+
+    def test_parallel_condition_uses_multiple_isolated_contexts_and_keeps_order(self) -> None:
+        runner = object.__new__(goal_drift.ExperimentRunner)
+        runner.config = types.SimpleNamespace(num_seeds=1)
+        runner.env = object()
+        runner.agent = object()
+        runner.judge = object()
+        runner.results = goal_drift.ExperimentResults("test", "now")
+        runner.worker_contexts = [
+            goal_drift.EpisodeWorkerContext(0, object(), object(), object()),
+            goal_drift.EpisodeWorkerContext(1, object(), object(), object()),
+        ]
+        state = {"active": 0, "max_active": 0, "workers": set()}
+        state_lock = threading.Lock()
+
+        def fake_episode(self, task_idx, strategy, seed, context=None):
+            with state_lock:
+                state["active"] += 1
+                state["max_active"] = max(state["max_active"], state["active"])
+                state["workers"].add(context.worker_id)
+            time.sleep(0.03)
+            with state_lock:
+                state["active"] -= 1
+            return goal_drift.TrajectoryRecord(
+                task_idx, f"task-{task_idx}", strategy, seed, [],
+            )
+
+        runner._run_episode = types.MethodType(fake_episode, runner)
+        trajectories = runner._run_condition([7, 3, 9, 1], "baseline")
+
+        self.assertEqual([item.task_id for item in trajectories], [7, 3, 9, 1])
+        self.assertEqual(state["max_active"], 2)
+        self.assertEqual(state["workers"], {0, 1})
+        self.assertEqual(
+            [item["task_id"] for item in runner.results.trajectories],
+            [7, 3, 9, 1],
+        )
 
 
 if __name__ == "__main__":

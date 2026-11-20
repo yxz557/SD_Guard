@@ -346,7 +346,7 @@ python Memory-Poisoning.py \
   --mem0_embedding_dims 384 \
   --mem0_embedder_device cpu \
   --mem0_cpu_threads 1 \
-  --mem0_max_native_threads 256 \
+  --mem0_max_native_threads 512 \
   --mem0_vector_path "$MEMORY_ROOT/smoke/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_smoke \
   --data_path data/all_refused_combined_200.json \
@@ -612,7 +612,7 @@ python Memory-Poisoning.py \
   --mem0_embedding_dims 384 \
   --mem0_embedder_device cpu \
   --mem0_cpu_threads 1 \
-  --mem0_max_native_threads 256 \
+  --mem0_max_native_threads 512 \
   --mem0_vector_path "$MEMORY_ROOT/full/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_full \
   --data_path data/all_refused_combined_200.json \
