@@ -300,6 +300,7 @@ python Memory-Poisoning.py \
 | `--targets` | `openai anthropic google` | Provider(s) to attack |
 | `--target_samples` | 200 | Maximum eligible samples per provider |
 | `--num_strategies` | 3 | Injection strategies per sample |
+| `--memory_planner_prompt_variant` | `official` | `deepseek_preference_v1` and `deepseek_preference_v2` are separately recorded DeepSeek planner conditions |
 | `--data_path` | `./data/all_refused_combined_200.json` | Dataset path |
 | `--require_mem0` | enabled | Require the configured persistent Mem0 backend to initialize before the run |
 | `--allow_mem0_fallback` | disabled | Debug only: allow startup without a Mem0 backend |

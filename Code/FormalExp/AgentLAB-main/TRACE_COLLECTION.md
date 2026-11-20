@@ -169,12 +169,25 @@ conda activate /root/autodl-tmp/conda-envs/agentlab-memory
 
 cd "$AL_ROOT"
 pip install -r requirements-memory.txt
-python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); print('embedder cached')"
 ```
 
 All Memory Poisoning commands below must be launched from
 `/root/autodl-tmp/conda-envs/agentlab-memory`; leave the victim vLLM server in
 its original `sd4-vllm-cu130` terminal.
+
+Memory Poisoning is deliberately offline for MiniLM embeddings. Before a run,
+find an already provisioned local model (or a Hugging Face cache snapshot):
+
+```bash
+find /root/autodl-tmp/models /root/.cache/huggingface/hub \
+  -type f -name modules.json -path '*all-MiniLM-L6-v2*' -printf '%h\n' 2>/dev/null
+```
+
+Use the printed directory as `MINILM_PATH`. If this prints nothing, provision
+the model through the server's approved artifact-transfer route first; do not
+start the experiment and do not enable remote fallback. The runner sets
+`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, and `local_files_only=True`, so
+it fails immediately instead of attempting a download.
 
 The runner forces conservative CPU thread pools before importing Mem0. Keep
 this explicit export as a second guard on high-core servers; inherited values
@@ -359,6 +372,7 @@ python Memory-Poisoning.py \
   --target_samples 2 \
   --start_idx 0 \
   --num_strategies 3 \
+  --memory_planner_prompt_variant deepseek_preference_v2 \
   --min_evasiveness_score 3.5 \
   --require_mem0 \
   --fixed_output_dir \
@@ -634,6 +648,7 @@ python Memory-Poisoning.py \
   --target_samples 200 \
   --start_idx 0 \
   --num_strategies 3 \
+  --memory_planner_prompt_variant deepseek_preference_v2 \
   --min_evasiveness_score 3.5 \
   --require_mem0 \
   --fixed_output_dir \

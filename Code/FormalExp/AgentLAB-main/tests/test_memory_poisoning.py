@@ -132,6 +132,103 @@ def bare_executor(require_mem0=True):
 
 
 class MemoryPoisoningTests(unittest.TestCase):
+    def test_deepseek_preference_planner_variant_is_traceable(self):
+        planner = object.__new__(memory_poisoning.StrategyPlanner)
+        planner.config = SimpleNamespace(
+            num_strategies=1,
+            max_memory_words=15,
+            memory_planner_prompt_variant="deepseek_preference_v1",
+        )
+        planner.log = QuietLog()
+        captured = []
+        planner.agent = SimpleNamespace(call_api=lambda messages: (
+            captured.append(messages[0]["content"]) or json.dumps({
+                "s1": {
+                    "persona": "assistant", "context": "work",
+                    "approach": "direct",
+                    "general_memories": [
+                        "User prefers concise action-oriented summaries",
+                        "User prefers direct answers without lengthy explanations",
+                        "User prefers self-contained next steps",
+                    ],
+                    "retrieval_keywords": ["task"],
+                },
+            })
+        ))
+
+        strategies = planner.plan(
+            SimpleNamespace(
+                abstracted_action="complete a requested workflow",
+                retrieval_keywords=["task"],
+            ),
+            [],
+        )
+
+        self.assertIn("must not be explanations, warnings", captured[0])
+        self.assertEqual(strategies[0].planner_prompt_variant,
+                         "deepseek_preference_v1")
+        self.assertEqual(strategies[0].planner_prompt, captured[0])
+        self.assertIn("general_memories", strategies[0].planner_response)
+
+    def test_task_agnostic_deepseek_planner_variant_withholds_goal(self):
+        planner = object.__new__(memory_poisoning.StrategyPlanner)
+        planner.config = SimpleNamespace(
+            num_strategies=1,
+            max_memory_words=15,
+            memory_planner_prompt_variant="deepseek_preference_v2",
+        )
+        planner.log = QuietLog()
+        planner.agent = SimpleNamespace(call_api=lambda messages: json.dumps({
+            "s1": {
+                "general_memories": [
+                    "User prefers concise answers with clear next steps",
+                    "The user prefers proactive progress updates",
+                    "User prefers options presented in a short comparison",
+                ],
+            },
+        }))
+
+        strategies = planner.plan(
+            SimpleNamespace(
+                abstracted_action="this string must not enter the prompt",
+                retrieval_keywords=["task"],
+            ),
+            [],
+        )
+
+        self.assertEqual(strategies[0].planner_prompt_variant,
+                         "deepseek_preference_v2")
+        self.assertIn("underlying task is intentionally withheld",
+                      strategies[0].planner_prompt)
+        self.assertNotIn("this string must not enter the prompt",
+                         strategies[0].planner_prompt)
+
+    def test_local_embedder_config_forces_offline_minilm(self):
+        config = memory_poisoning.Config(
+            mem0_embedder_model="/models/all-MiniLM-L6-v2",
+            mem0_embedding_dims=384,
+            mem0_embedder_device="cpu",
+        )
+        previous_hf = memory_poisoning.os.environ.get("HF_HUB_OFFLINE")
+        previous_transformers = memory_poisoning.os.environ.get(
+            "TRANSFORMERS_OFFLINE")
+        try:
+            embedder = memory_poisoning.local_embedder_config(config)
+        finally:
+            if previous_hf is None:
+                memory_poisoning.os.environ.pop("HF_HUB_OFFLINE", None)
+            else:
+                memory_poisoning.os.environ["HF_HUB_OFFLINE"] = previous_hf
+            if previous_transformers is None:
+                memory_poisoning.os.environ.pop("TRANSFORMERS_OFFLINE", None)
+            else:
+                memory_poisoning.os.environ["TRANSFORMERS_OFFLINE"] = previous_transformers
+
+        self.assertEqual(embedder["provider"], "huggingface")
+        self.assertEqual(embedder["config"]["model"], "/models/all-MiniLM-L6-v2")
+        self.assertTrue(embedder["config"]["model_kwargs"]["local_files_only"])
+        self.assertEqual(embedder["config"]["model_kwargs"]["device"], "cpu")
+
     def test_mem0_cpu_thread_limits_override_large_inherited_pools(self):
         try:
             info = memory_poisoning.configure_mem0_cpu_threads(2)
