@@ -293,6 +293,7 @@ python attacks/goal_drift/goal_drift_v12.py \
   --aux_thinking off \
   --num_tasks 2 \
   --num_seeds 1 \
+  --max_workers 2 \
   --strategy optimized \
   --optimize_iterations 1 \
   --output "$RUN_ROOT/objective_drifting_smoke/results.json" \
@@ -304,6 +305,10 @@ python attacks/goal_drift/goal_drift_v12.py \
 
 Formal data must use `WebShopSubprocessClient`. If the log or trace reports the
 standalone fallback simulator, fix WebShop before running the full campaign.
+
+`--max_workers` controls concurrent, isolated WebShop episodes; it is not a
+vLLM setting. Keep the smoke run at `2`, then use `4` for a full run on this
+server. vLLM's `--max-num-seqs 20` remains a capacity ceiling.
 
 ### Memory Poisoning smoke test
 
@@ -352,6 +357,7 @@ python Memory-Poisoning.py \
   --data_path data/all_refused_combined_200.json \
   --target_samples 2 \
   --start_idx 0 \
+  --sample_workers 2 \
   --num_strategies 3 \
   --require_mem0 \
   --sequential \
@@ -369,6 +375,11 @@ Every selected attack trace must have
 least one overlapping ID in `written_memory_ids` and `retrieved_memory_ids`.
 A fallback run without these facts is not equivalent to the intended Memory
 Poisoning task.
+
+`--sample_workers` starts isolated **processes**, not threads. Each worker owns
+its own `sample_workers/worker_XX` Qdrant directory and collection, so Mem0
+state cannot cross source rows. Use `2` on this server: more workers can
+multiply sentence-transformer native threads.
 
 ## 5. Full commands
 
@@ -569,8 +580,9 @@ python attacks/goal_drift/goal_drift_v12.py \
   --stealthiness_model "$AUX_MODEL" \
   --aux_base_url "$AUX_BASE_URL" \
   --aux_thinking off \
-  --num_tasks 100 \
+  --num_tasks 6910 \
   --num_seeds 1 \
+  --max_workers 4 \
   --strategy optimized \
   --optimize_iterations 5 \
   --output "$RUN_ROOT/objective_drifting/results.json" \
@@ -618,6 +630,7 @@ python Memory-Poisoning.py \
   --data_path data/all_refused_combined_200.json \
   --target_samples 200 \
   --start_idx 0 \
+  --sample_workers 2 \
   --num_strategies 3 \
   --require_mem0 \
   --sequential \

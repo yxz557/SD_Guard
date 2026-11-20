@@ -284,6 +284,7 @@ python Memory-Poisoning.py \
     --targets local \
     --local_model Qwen/Qwen3-30B-A3B \
     --local_url http://localhost:8001/v1 \
+    --sample_workers 2 \
     --require_mem0
 
 # All providers in parallel
@@ -302,6 +303,7 @@ python Memory-Poisoning.py \
 | `--data_path` | `./data/all_refused_combined_200.json` | Dataset path |
 | `--require_mem0` | enabled | Reject traces whose Mem0 cleanup/write/search chain is invalid |
 | `--allow_mem0_fallback` | disabled | Debug only; output is not formal Memory Poisoning data |
+| `--sample_workers` | 1 | Isolated source-row processes; each has a separate Mem0/Qdrant store |
 | `--mem0_cpu_threads` | 1 | Limit torch/BLAS embedding pools for stable long runs |
 | `--mem0_max_native_threads` | 512 | Fail fast before a native-thread leak exhausts the host |
 

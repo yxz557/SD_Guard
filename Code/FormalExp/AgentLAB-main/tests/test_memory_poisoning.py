@@ -157,6 +157,47 @@ class MemoryPoisoningTests(unittest.TestCase):
                 257,
             )
 
+    def test_sample_worker_config_has_isolated_mem0_state(self):
+        config = memory_poisoning.Config(
+            mem0_vector_path="/tmp/agentlab-memory/mem0_qdrant",
+            mem0_collection_name="agentlab_memory_full",
+        )
+
+        worker_zero = memory_poisoning.memory_worker_config(config, 0)
+        worker_one = memory_poisoning.memory_worker_config(config, 1)
+
+        self.assertEqual(config.mem0_collection_name, "agentlab_memory_full")
+        self.assertNotEqual(
+            worker_zero.mem0_vector_path, worker_one.mem0_vector_path,
+        )
+        self.assertIn("sample_workers", worker_zero.mem0_vector_path)
+        self.assertEqual(
+            worker_zero.mem0_collection_name, "agentlab_memory_full_worker_00",
+        )
+        self.assertEqual(
+            worker_one.mem0_collection_name, "agentlab_memory_full_worker_01",
+        )
+
+    def test_sample_worker_shards_are_disjoint_and_preserve_source_cap(self):
+        samples = [{"_agentlab_row_index": index} for index in range(8)]
+
+        shards = memory_poisoning.AgentLABOrchestrator._sample_worker_shards(
+            samples, target_n=5, start_idx=1, worker_count=3,
+        )
+
+        rows = [
+            sample["_agentlab_row_index"]
+            for shard in shards for sample in shard
+        ]
+        self.assertEqual(sorted(rows), [1, 2, 3, 4, 5])
+        self.assertEqual(len(rows), len(set(rows)))
+        self.assertEqual(
+            memory_poisoning.AgentLABOrchestrator._sample_worker_shards(
+                samples, target_n=2, start_idx=99, worker_count=2,
+            ),
+            [],
+        )
+
     def test_mem0_result_normalization(self):
         item = {"id": "m1", "memory": "remember me"}
         self.assertEqual(memory_poisoning.mem0_result_items({"results": [item]}), [item])

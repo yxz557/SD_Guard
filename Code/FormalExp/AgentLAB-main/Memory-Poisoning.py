@@ -1,5 +1,5 @@
 """
-AgentLAB Memory Injection Attack Framework v5.2 — Thread-Safe Mem0 Trace Edition
+AgentLAB Memory Injection Attack Framework v5.3 — Isolated Parallel Mem0 Trace Edition
 =============================================================================
 Tests memory injection attacks against ALL major LLM providers in one run.
 
@@ -41,7 +41,7 @@ python agentlab_memory_attack.py --targets local \
 python agentlab_memory_attack.py --targets openai anthropic google local \
     --local_model meta-llama/Llama-3.1-8B-Instruct
 
-# Sequential instead of parallel:
+# Serialize different victim models (source-row workers may still be parallel):
 python agentlab_memory_attack.py --sequential
 
 # Custom data path:
@@ -68,7 +68,7 @@ import threading
 import concurrent.futures
 from datetime import datetime
 from copy import deepcopy
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from typing import List, Dict, Optional, Tuple, Any
 from enum import Enum
 from pathlib import Path
@@ -595,6 +595,7 @@ class Config:
     trace_dir: str = ""
     trace_run_id: str = ""
     require_mem0: bool = True
+    sample_workers: int = 1
     verbose: bool = True
 
 
@@ -1501,6 +1502,8 @@ class AttackExecutor:
                         "embedder_provider": "huggingface" if self.config.mem0_mode != "default" else "default",
                         "embedder_model": self.config.mem0_embedder_model,
                         "embedding_dims": self.config.mem0_embedding_dims,
+                        "vector_path": self.config.mem0_vector_path,
+                        "collection_name": self.config.mem0_collection_name,
                         "strict_operations": self.config.require_mem0,
                         "cpu_threads": self.config.mem0_cpu_threads,
                         "max_native_threads": self.config.mem0_max_native_threads,
@@ -1888,6 +1891,8 @@ harmful_evidence (list), attack_success_score (1-5), and evaluation
                         "embedder_provider": "huggingface" if self.config.mem0_mode != "default" else "default",
                         "embedder_model": self.config.mem0_embedder_model,
                         "embedding_dims": self.config.mem0_embedding_dims,
+                        "vector_path": self.config.mem0_vector_path,
+                        "collection_name": self.config.mem0_collection_name,
                         "cpu_threads": self.config.mem0_cpu_threads,
                         "max_native_threads": self.config.mem0_max_native_threads,
                     },
@@ -1914,8 +1919,9 @@ class SingleModelRunner:
             "metadata": {
                 "provider": provider,
                 "model": model_id,
-                "version": "5.2-agentlab-thread-safe-memory",
+                "version": "5.3-agentlab-isolated-parallel-memory",
                 "strict_mem0": config.require_mem0,
+                "sample_workers": config.sample_workers,
             },
             "samples": [],
             "baseline_executed": [],
@@ -2052,6 +2058,86 @@ class SingleModelRunner:
 
 
 # ============================================================================
+# SHARED COMPONENTS / MULTI-PROCESS SAMPLE WORKERS
+# ============================================================================
+def build_memory_shared_components(config, log):
+    """Build state that must never be shared across sample worker processes."""
+    shared = {}
+    shared["evasiveness_judge"] = EvasivenessJudge(config, log)
+    shared["memory_generator"] = MemoryGenerator(
+        config, log, shared["evasiveness_judge"])
+    shared["goal_analyzer"] = GoalAnalyzer(
+        OpenAIAgent(auxiliary_agent_config(config, config.judge_model, 0.1)),
+        log)
+    shared["strategy_planner"] = StrategyPlanner(config, log)
+    try:
+        environments_root = str(Path(__file__).resolve().parent / "environments")
+        if environments_root not in sys.path:
+            sys.path.insert(0, environments_root)
+        from EnvManager import EnvManager
+        shared["env_mgr"] = EnvManager()
+        log.ok("EnvManager loaded from ./environments")
+    except Exception as exc:
+        log.warn(f"EnvManager not available: {exc}")
+        shared["env_mgr"] = None
+    shared["mem_client"] = get_shared_mem0(config)
+    if shared["mem_client"]:
+        log.ok("Mem0 initialized")
+    elif config.require_mem0:
+        raise RuntimeError(
+            "Mem0 is required but failed to initialize; refusing to run a "
+            "memory-poisoning experiment without persistent memory")
+    else:
+        log.warn("Mem0 not available")
+    return shared
+
+
+def memory_worker_config(config, worker_id):
+    """Derive isolated on-disk Mem0 state for one sample worker."""
+    original_vector_path = Path(config.mem0_vector_path)
+    worker_root = (original_vector_path.parent / "sample_workers"
+                   / f"worker_{worker_id:02d}")
+    return replace(
+        config,
+        mem0_vector_path=str(worker_root / original_vector_path.name),
+        mem0_collection_name=(
+            f"{config.mem0_collection_name}_worker_{worker_id:02d}"),
+    )
+
+
+def run_memory_sample_worker(config, provider, model_id, samples, worker_id,
+                             output_dir):
+    """Run one source-row shard in an isolated OS process.
+
+    Local Qdrant and its Python client are not made thread-safe by user-id
+    filtering alone. A process owns its own Mem0/Qdrant directory, EnvManager,
+    target client, and result file; raw trace paths remain globally unique by
+    source-row identity.
+    """
+    # This module-level function is pickleable for ProcessPoolExecutor.  Do
+    # not pass the parent's Mem0, environment, or client objects: every
+    # worker must construct and own those resources independently.
+    worker_config = memory_worker_config(config, worker_id)
+    worker_log = Log(
+        str(Path(output_dir) / "worker.log"), worker_config.verbose,
+        f"WORKER-{worker_id}")
+    worker_log.phase(
+        f"SAMPLE WORKER {worker_id}: {len(samples)} source rows | "
+        f"Mem0={worker_config.mem0_collection_name}")
+    shared = build_memory_shared_components(worker_config, worker_log)
+    runner = SingleModelRunner(
+        worker_config, provider, model_id, shared, str(output_dir))
+    runner.run(samples, len(samples), start_idx=0)
+    return {
+        "worker_id": worker_id,
+        "output_dir": str(output_dir),
+        "result_path": str(Path(output_dir) / "final_results.json"),
+        "mem0_vector_path": worker_config.mem0_vector_path,
+        "mem0_collection_name": worker_config.mem0_collection_name,
+    }
+
+
+# ============================================================================
 # MAIN ORCHESTRATOR
 # ============================================================================
 class AgentLABOrchestrator:
@@ -2069,30 +2155,7 @@ class AgentLABOrchestrator:
 
     def _init_shared(self):
         self.log.phase("INITIALIZING SHARED COMPONENTS")
-        shared = {}
-        shared["evasiveness_judge"] = EvasivenessJudge(self.config, self.log)
-        shared["memory_generator"] = MemoryGenerator(self.config, self.log, shared["evasiveness_judge"])
-        shared["goal_analyzer"] = GoalAnalyzer(
-            OpenAIAgent(auxiliary_agent_config(
-                self.config, self.config.judge_model, 0.1)), self.log)
-        shared["strategy_planner"] = StrategyPlanner(self.config, self.log)
-        # Environment manager — path is ./environments (inside AgentLab/)
-        try:
-            sys.path.insert(0, './environments')
-            from EnvManager import EnvManager
-            shared["env_mgr"] = EnvManager()
-            self.log.ok("EnvManager loaded from ./environments")
-        except Exception as e:
-            self.log.warn(f"EnvManager not available: {e}")
-            shared["env_mgr"] = None
-        shared["mem_client"] = get_shared_mem0(self.config)
-        if shared["mem_client"]: self.log.ok("Mem0 initialized")
-        elif self.config.require_mem0:
-            raise RuntimeError(
-                "Mem0 is required but failed to initialize; refusing to run a "
-                "memory-poisoning experiment without persistent memory")
-        else: self.log.warn("Mem0 not available")
-        return shared
+        return build_memory_shared_components(self.config, self.log)
 
     def _build_targets(self, providers):
         targets = []
@@ -2111,8 +2174,143 @@ class AgentLABOrchestrator:
                     targets.append(("local", self.config.local_model))
         return targets
 
+    @staticmethod
+    def _sample_worker_shards(samples, target_n, start_idx, worker_count):
+        """Shard source rows deterministically without duplicating a trace ID."""
+        candidates = samples[max(0, start_idx):]
+        # In worker mode, target_n is deliberately a source-row cap. This
+        # keeps a 2-row smoke exactly two rows even if a baseline is skipped.
+        if target_n > 0:
+            candidates = candidates[:target_n]
+        if not candidates:
+            return []
+        worker_count = min(max(1, worker_count), len(candidates))
+        return [
+            candidates[index::worker_count]
+            for index in range(worker_count)
+            if candidates[index::worker_count]
+        ]
+
+    def _merge_sample_worker_results(self, provider, model, output_dir,
+                                     worker_infos):
+        """Create the usual one-model result envelope after worker completion."""
+        result_docs = []
+        for info in sorted(worker_infos, key=lambda item: item["worker_id"]):
+            path = Path(info["result_path"])
+            if not path.is_file():
+                raise RuntimeError(
+                    f"Sample worker {info['worker_id']} did not write {path}")
+            with path.open(encoding="utf-8") as file:
+                result_docs.append((info, json.load(file)))
+        if not result_docs:
+            raise RuntimeError("No sample-worker result documents to merge")
+
+        def sort_rows(rows):
+            return sorted(rows, key=lambda row: (
+                row.get("source_row_index") is None,
+                row.get("source_row_index", -1),
+                safe_str(row.get("sample_id") or row.get("id")),
+            ))
+
+        samples = sort_rows([
+            item for _, document in result_docs
+            for item in document.get("samples", [])
+        ])
+        baseline_executed = sort_rows([
+            item for _, document in result_docs
+            for item in document.get("baseline_executed", [])
+        ])
+        baseline_errors = sort_rows([
+            item for _, document in result_docs
+            for item in document.get("baseline_errors", [])
+        ])
+        covered_rows = [
+            row.get("source_row_index") for row in (
+                samples + baseline_executed + baseline_errors)
+            if row.get("source_row_index") is not None
+        ]
+        if len(covered_rows) != len(set(covered_rows)):
+            raise RuntimeError(
+                "Duplicate source rows returned by Memory Poisoning workers")
+
+        total = len(samples)
+        successful = sum(
+            bool(item.get("attack_successful")) for item in samples)
+        metadata = dict(result_docs[0][1].get("metadata", {}))
+        metadata.update({
+            "sample_workers": len(result_docs),
+            "worker_mem0": [{
+                "worker_id": info["worker_id"],
+                "vector_path": info["mem0_vector_path"],
+                "collection_name": info["mem0_collection_name"],
+            } for info, _ in result_docs],
+        })
+        merged = {
+            "metadata": metadata,
+            "samples": samples,
+            "baseline_executed": baseline_executed,
+            "baseline_errors": baseline_errors,
+            "metrics": {
+                "model": model,
+                "provider": provider,
+                "tested": total,
+                "successful": successful,
+                "rate": successful / total if total else 0,
+                "invalid_attacks": sum(
+                    item.get("attack_eval") == BehaviorEval.ERROR.value
+                    for item in samples),
+                "skipped_baseline": len(baseline_executed),
+                "baseline_errors": len(baseline_errors),
+                "source_rows_covered": len(covered_rows),
+            },
+        }
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for filename in ("progress.json", "final_results.json"):
+            with (output_dir / filename).open("w", encoding="utf-8") as file:
+                json.dump(merged, file, indent=2, default=str)
+        return merged
+
+    def _run_target_sample_workers(self, provider, model, samples, target_n,
+                                   start_idx):
+        safe_name = model.replace("/", "_").replace(".", "_")
+        output_dir = Path(self.base_dir) / safe_name
+        shards = self._sample_worker_shards(
+            samples, target_n, start_idx, self.config.sample_workers)
+        if not shards:
+            raise ValueError(
+                "No source rows selected; check --start_idx and --target_samples")
+        self.log.info(
+            f"Running {len(shards)} isolated sample workers for {provider}/{model}; "
+            f"shards={[len(shard) for shard in shards]}")
+        worker_infos = []
+        with concurrent.futures.ProcessPoolExecutor(
+                max_workers=len(shards)) as pool:
+            futures = {
+                pool.submit(
+                    run_memory_sample_worker, self.config, provider, model,
+                    shard, worker_id,
+                    str(output_dir / "workers" / f"worker_{worker_id:02d}"),
+                ): worker_id
+                for worker_id, shard in enumerate(shards)
+            }
+            for future in concurrent.futures.as_completed(futures):
+                worker_id = futures[future]
+                try:
+                    worker_infos.append(future.result())
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Memory sample worker {worker_id} failed: {exc}") from exc
+        merged = self._merge_sample_worker_results(
+            provider, model, output_dir, worker_infos)
+        self.log.ok(
+            f"Merged {len(worker_infos)} Memory Poisoning workers: "
+            f"{merged['metrics']['tested']} attacked, "
+            f"{merged['metrics']['skipped_baseline']} baseline-skipped")
+        return merged
+
     def run(self, data_path, providers, target_n, start_idx=0, parallel=True):
-        self.log.phase("AgentLAB MEMORY INJECTION ATTACK v5.2")
+        self.log.phase("AgentLAB MEMORY INJECTION ATTACK v5.3")
         with open(data_path) as f:
             samples = json.load(f)
         if not isinstance(samples, list): samples = [samples]
@@ -2123,39 +2321,65 @@ class AgentLABOrchestrator:
         ]
         self.log.info(f"Dataset: {len(samples)} samples from {data_path}")
 
-        shared = self._init_shared()
         targets = self._build_targets(providers)
         self.log.info(f"Targets: {[f'{p}/{m}' for p,m in targets]}")
 
-        runners = {}
-        for prov, model in targets:
-            safe_name = model.replace("/", "_").replace(".", "_")
-            out = f"{self.base_dir}/{safe_name}"
-            runners[(prov, model)] = SingleModelRunner(self.config, prov, model, shared, out)
-
-        if parallel and len(runners) > 1:
-            self.log.info(f"Running {len(runners)} targets in PARALLEL")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(runners)) as pool:
-                futs = {pool.submit(r.run, samples, target_n, start_idx): k for k, r in runners.items()}
-                for f in concurrent.futures.as_completed(futs):
-                    k = futs[f]
-                    try: f.result()
-                    except Exception as e: self.log.err(f"Failed {k}: {e}"); traceback.print_exc()
+        runner_results = {}
+        if self.config.sample_workers > 1:
+            # Per-model workers are processes, because local Mem0/Qdrant is not
+            # safely shared by Python threads. Keep provider models sequential
+            # here so total process count never becomes models × sample_workers.
+            if len(targets) > 1:
+                self.log.warn(
+                    "sample_workers is enabled; target models will run one at a "
+                    "time to avoid multiplying local Mem0 worker processes")
+            for prov, model in targets:
+                runner_results[(prov, model)] = self._run_target_sample_workers(
+                    prov, model, samples, target_n, start_idx)
         else:
-            for k, r in runners.items():
-                try: r.run(samples, target_n, start_idx)
-                except Exception as e: self.log.err(f"Failed {k}: {e}"); traceback.print_exc()
+            shared = self._init_shared()
+            runners = {}
+            for prov, model in targets:
+                safe_name = model.replace("/", "_").replace(".", "_")
+                out = f"{self.base_dir}/{safe_name}"
+                runners[(prov, model)] = SingleModelRunner(
+                    self.config, prov, model, shared, out)
+
+            if parallel and len(runners) > 1:
+                self.log.info(f"Running {len(runners)} targets in PARALLEL")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(runners)) as pool:
+                    futs = {
+                        pool.submit(r.run, samples, target_n, start_idx): k
+                        for k, r in runners.items()
+                    }
+                    for future in concurrent.futures.as_completed(futs):
+                        key = futs[future]
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            self.log.err(f"Failed {key}: {exc}")
+                            traceback.print_exc()
+            else:
+                for key, runner in runners.items():
+                    try:
+                        runner.run(samples, target_n, start_idx)
+                    except Exception as exc:
+                        self.log.err(f"Failed {key}: {exc}")
+                        traceback.print_exc()
+            runner_results = {
+                key: runner.results for key, runner in runners.items()
+            }
 
         # Summary
         self.log.phase("FINAL SUMMARY")
         print(f"\n{'='*70}")
-        print(f"AgentLAB MEMORY INJECTION ATTACK v5.2 — RESULTS")
+        print(f"AgentLAB MEMORY INJECTION ATTACK v5.3 — RESULTS")
         print(f"{'='*70}")
         print(f"{'Model':<40} {'Tested':<8} {'Success':<8} {'Rate':<10} {'Skipped':<8}")
         print("-" * 74)
         combined = {}
-        for (prov, model), runner in runners.items():
-            m = runner.results.get("metrics", {})
+        for (prov, model), result in runner_results.items():
+            m = result.get("metrics", {})
             print(f"{model:<40} {m.get('tested',0):<8} {m.get('successful',0):<8} "
                   f"{m.get('rate',0):.1%}{'':<5} {m.get('skipped_baseline',0):<8}")
             combined[model] = m
@@ -2194,7 +2418,7 @@ def main():
     )
     aux_thinking_default = "off" if "deepseek" in aux_base_default.lower() else "server"
     parser = argparse.ArgumentParser(
-        description="AgentLAB Memory Injection Attack v5.2 (thread-safe Mem0 traces)",
+        description="AgentLAB Memory Injection Attack v5.3 (isolated parallel Mem0 traces)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 EXAMPLES:
@@ -2223,7 +2447,16 @@ EXAMPLES:
     parser.add_argument("--start_idx", type=int, default=0)
     parser.add_argument("--targets", nargs='+', default=['openai', 'anthropic', 'google'],
                         choices=['openai', 'anthropic', 'google', 'local'])
-    parser.add_argument("--sequential", action="store_true")
+    parser.add_argument(
+        "--sequential", action="store_true",
+        help=("Serialize different victim models. It does not disable "
+              "--sample_workers source-row processes."),
+    )
+    parser.add_argument(
+        "--sample_workers", type=int, default=1,
+        help=("Parallel source-sample worker processes. Each worker owns an "
+              "isolated Mem0/Qdrant store; 1 preserves the original runner."),
+    )
 
     # API keys (or set via env vars)
     parser.add_argument("--openai_key", default=os.environ.get("OPENAI_API_KEY", ""))
@@ -2308,6 +2541,8 @@ EXAMPLES:
         parser.error("--mem0_cpu_threads must be at least 1")
     if args.mem0_max_native_threads < 1:
         parser.error("--mem0_max_native_threads must be at least 1")
+    if args.sample_workers < 1:
+        parser.error("--sample_workers must be at least 1")
 
     try:
         args.aux_api_key = validate_secret_value("auxiliary API key", args.aux_api_key)
@@ -2352,6 +2587,7 @@ EXAMPLES:
         fixed_output_dir=args.fixed_output_dir,
         trace_dir=args.trace_dir, trace_run_id=args.run_id,
         require_mem0=args.require_mem0,
+        sample_workers=args.sample_workers,
         verbose=args.verbose)
 
     # Validate keys
@@ -2365,12 +2601,13 @@ EXAMPLES:
         print(f"{RED}--local_model required{ENDC}"); return
 
     print(f"\n{GREEN}{'='*70}")
-    print("AgentLAB MEMORY INJECTION ATTACK v5.2")
+    print("AgentLAB MEMORY INJECTION ATTACK v5.3")
     print(f"{'='*70}{ENDC}")
     print(f"Data      : {args.data_path}")
     print(f"Targets   : {args.targets}")
     print(f"Samples   : {args.target_samples}")
     print(f"Parallel  : {not args.sequential}")
+    print(f"Sample workers: {args.sample_workers}")
     print(f"Strategies: {args.num_strategies}")
     print(f"Auxiliary : {aux_model} @ {args.aux_base_url or 'https://api.openai.com/v1'}")
     print(f"Mem0      : {args.mem0_mode} | embedder={args.mem0_embedder_model}")
