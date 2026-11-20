@@ -332,6 +332,8 @@ export MEMORY_ROOT="$RUN_ROOT/memory_poisoning_deepseek_flash"
 export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
 cd "$AL_ROOT"
 
+# The previous smoke run was confirmed invalid; start from an empty directory.
+rm -rf "$MEMORY_ROOT/smoke"
 mkdir -p "$MEMORY_ROOT/smoke"
 python Memory-Poisoning.py \
   --targets local \
@@ -616,6 +618,8 @@ export MEMORY_ROOT="$RUN_ROOT/memory_poisoning_deepseek_flash"
 export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
 cd "$AL_ROOT"
 
+# The previous full run was confirmed invalid; start from an empty directory.
+rm -rf "$MEMORY_ROOT/full"
 mkdir -p "$MEMORY_ROOT/full"
 python Memory-Poisoning.py \
   --targets local \
