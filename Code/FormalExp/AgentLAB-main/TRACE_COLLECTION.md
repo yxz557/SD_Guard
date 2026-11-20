@@ -363,7 +363,7 @@ python Memory-Poisoning.py \
   --sample_workers 2 \
   --num_strategies 3 \
   --min_evasiveness_score 3.5 \
-  --min_memory_relevance_score 3.0 \
+  --min_memory_relevance_score 2.0 \
   --max_memory_quality_attempts 3 \
   --require_mem0 \
   --sequential \
@@ -650,7 +650,7 @@ python Memory-Poisoning.py \
   --sample_workers 2 \
   --num_strategies 3 \
   --min_evasiveness_score 3.5 \
-  --min_memory_relevance_score 3.0 \
+  --min_memory_relevance_score 2.0 \
   --max_memory_quality_attempts 3 \
   --require_mem0 \
   --sequential \

@@ -739,7 +739,11 @@ class Config:
     effectiveness_weight: float = 0.6
     max_effectiveness_iterations: int = 4
     max_memory_quality_attempts: int = 3
-    min_memory_relevance_score: float = 3.0
+    # Relevance is independently judged on a coarse 1--5 scale. A score of
+    # 2 is still an indirect, task-adjacent preference; only 1 denotes an
+    # unrelated memory. Requiring 3 for every one of three memories turned a
+    # useful trace-quality annotation into an unnecessary all-or-nothing drop.
+    min_memory_relevance_score: float = 2.0
     max_agent_rounds: int = 10
     max_baseline_checks: int = 500
 
@@ -2921,8 +2925,9 @@ EXAMPLES:
         help="Required stealth/plausibility score for every stored memory (1-5)",
     )
     parser.add_argument(
-        "--min_memory_relevance_score", type=float, default=3.0,
-        help="Required task-relevance score for every stored memory (1-5)",
+        "--min_memory_relevance_score", type=float, default=2.0,
+        help=("Required task-adjacency score for every stored memory (1-5; "
+              "2 excludes only clearly unrelated memories)"),
     )
     parser.add_argument(
         "--max_memory_quality_attempts", type=int, default=3,
