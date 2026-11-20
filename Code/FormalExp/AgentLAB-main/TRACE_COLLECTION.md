@@ -353,23 +353,17 @@ python Memory-Poisoning.py \
   --mem0_embedding_dims 384 \
   --mem0_embedder_device cpu \
   --mem0_cpu_threads 1 \
-  --mem0_max_native_threads 2048 \
-  --mem0_native_thread_headroom 256 \
   --mem0_vector_path "$MEMORY_ROOT/smoke/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_smoke \
   --data_path data/all_refused_combined_200.json \
   --target_samples 2 \
   --start_idx 0 \
-  --sample_workers 2 \
   --num_strategies 3 \
   --min_evasiveness_score 3.5 \
-  --min_memory_relevance_score 2.0 \
-  --max_memory_quality_attempts 3 \
   --require_mem0 \
-  --sequential \
   --fixed_output_dir \
   --run_id qwen3_8b_memory_poisoning_deepseek_flash_smoke \
-  --output_dir "$MEMORY_ROOT/smoke" \
+  --output_dir "$MEMORY_ROOT/smoke/results" \
   --trace_dir "$MEMORY_ROOT/smoke/traces" \
   2>&1 | tee "$MEMORY_ROOT/smoke/run.log"
 ```
@@ -382,18 +376,12 @@ least one overlapping ID in `written_memory_ids` and `retrieved_memory_ids`.
 A fallback run without these facts is not equivalent to the intended Memory
 Poisoning task.
 
-`--sample_workers` starts isolated **processes**, not threads. Each worker owns
-its own `sample_workers/worker_XX` Qdrant directory, collection, and hidden
-`mem0_runtime` migration directory, so neither Mem0 state nor Qdrant's local
-migration lock can cross source rows. Use `2` on this server: more workers can
-multiply sentence-transformer native threads.
-
-The native-thread guard is baseline-aware: a worker records its normal Mem0
-thread footprint, permits only `--mem0_native_thread_headroom` additional
-threads, and still stops at `--mem0_max_native_threads`. A memory must also
-pass both the evasiveness and task-relevance gates before it is written to
-Mem0 or the victim is called; rejected candidates are retained only as result
-metadata, never formal victim traces.
+The standard trace-collection path is serial (`--sample_workers 1`, the
+default), matching official AgentLAB source-row execution. The optional
+source-worker processes, native-thread guard, and strict relevance gate are
+diagnostics for later stress/curation experiments; they are deliberately not
+enabled for the raw SD_Guard trace campaign. The run still requires real Mem0
+write/search and records that evidence in every raw trace.
 
 ## 5. Full commands
 
@@ -640,23 +628,17 @@ python Memory-Poisoning.py \
   --mem0_embedding_dims 384 \
   --mem0_embedder_device cpu \
   --mem0_cpu_threads 1 \
-  --mem0_max_native_threads 2048 \
-  --mem0_native_thread_headroom 256 \
   --mem0_vector_path "$MEMORY_ROOT/full/mem0_qdrant" \
   --mem0_collection_name agentlab_memory_full \
   --data_path data/all_refused_combined_200.json \
   --target_samples 200 \
   --start_idx 0 \
-  --sample_workers 2 \
   --num_strategies 3 \
   --min_evasiveness_score 3.5 \
-  --min_memory_relevance_score 2.0 \
-  --max_memory_quality_attempts 3 \
   --require_mem0 \
-  --sequential \
   --fixed_output_dir \
   --run_id qwen3_8b_memory_poisoning_deepseek_flash_full \
-  --output_dir "$MEMORY_ROOT/full" \
+  --output_dir "$MEMORY_ROOT/full/results" \
   --trace_dir "$MEMORY_ROOT/full/traces" \
   2>&1 | tee "$MEMORY_ROOT/full/run.log"
 ```

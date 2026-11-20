@@ -140,7 +140,10 @@ class MemoryPoisoningTests(unittest.TestCase):
             memory_poisoning.configure_mem0_cpu_threads(1)
 
     def test_native_thread_budget_fails_fast(self):
-        config = SimpleNamespace(mem0_max_native_threads=512)
+        config = SimpleNamespace(
+            mem0_max_native_threads=512,
+            enforce_native_thread_budget=True,
+        )
         with patch.object(
             memory_poisoning, "native_thread_count", return_value=8324,
         ):
@@ -150,7 +153,10 @@ class MemoryPoisoningTests(unittest.TestCase):
                 )
 
     def test_native_thread_budget_allows_normal_encoder_pool(self):
-        config = SimpleNamespace(mem0_max_native_threads=512)
+        config = SimpleNamespace(
+            mem0_max_native_threads=512,
+            enforce_native_thread_budget=True,
+        )
         with patch.object(
             memory_poisoning, "native_thread_count", return_value=257,
         ):
@@ -165,6 +171,7 @@ class MemoryPoisoningTests(unittest.TestCase):
         config = SimpleNamespace(
             mem0_max_native_threads=2048,
             mem0_native_thread_headroom=64,
+            enforce_native_thread_budget=True,
         )
         with patch.object(
             memory_poisoning, "native_thread_count", side_effect=[503, 513],
@@ -407,6 +414,7 @@ class MemoryPoisoningTests(unittest.TestCase):
     def test_low_quality_memories_do_not_reach_mem0_or_victim(self):
         executor = bare_executor()
         executor.config.max_memory_quality_attempts = 1
+        executor.config.strict_memory_quality = True
 
         def low_quality(memory, rounds, **_kwargs):
             memory.evasiveness_score = 1.0
@@ -459,6 +467,25 @@ class MemoryPoisoningTests(unittest.TestCase):
 
         self.assertTrue(accepted)
         self.assertTrue(reports[0]["accepted"])
+
+    def test_standard_trace_mode_does_not_drop_low_relevance_memory(self):
+        executor = bare_executor()
+        executor.config.strict_memory_quality = False
+        executor.gen = SimpleNamespace(refine=lambda memory, *_args, **_kwargs: memory)
+        strategy = memory_poisoning.Strategy(
+            "strategy-1", "persona", "context", "approach",
+            ["I prefer concise administrative shortcuts."], ["shortcut"],
+        )
+
+        memories, audit, quality_error = executor._prepare_quality_memories(
+            strategy,
+            SimpleNamespace(harmful_goal="goal", abstracted_action="action"),
+            "task context",
+        )
+
+        self.assertIsNone(quality_error)
+        self.assertEqual(len(memories), 1)
+        self.assertFalse(audit[0]["enforced"])
 
     def test_judge_overrides_safety_warning_false_positive(self):
         executor = bare_executor()

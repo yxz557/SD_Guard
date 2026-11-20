@@ -301,15 +301,13 @@ python Memory-Poisoning.py \
 | `--target_samples` | 200 | Maximum eligible samples per provider |
 | `--num_strategies` | 3 | Injection strategies per sample |
 | `--data_path` | `./data/all_refused_combined_200.json` | Dataset path |
-| `--require_mem0` | enabled | Reject traces whose Mem0 cleanup/write/search chain is invalid |
+| `--require_mem0` | enabled | Record a trace as invalid if real Mem0 cleanup/write/search is unavailable |
 | `--allow_mem0_fallback` | disabled | Debug only; output is not formal Memory Poisoning data |
-| `--sample_workers` | 1 | Isolated source-row processes; each has a separate Mem0/Qdrant store |
+| `--sample_workers` | 1 | Advanced isolated source-row processes; default 1 matches official serial execution |
 | `--mem0_cpu_threads` | 1 | Limit torch/BLAS embedding pools for stable long runs |
-| `--mem0_max_native_threads` | 2048 | Absolute native-thread emergency cap |
-| `--mem0_native_thread_headroom` | 256 | Allowed growth above each worker's initialized Mem0 baseline |
+| `--enforce_native_thread_budget` | disabled | Advanced diagnostic guard; standard trace collection only records thread counts |
 | `--min_evasiveness_score` | 3.5 | Every stored memory must meet this stealth/plausibility gate |
-| `--min_memory_relevance_score` | 2.0 | Excludes only clearly unrelated (1/5) memories; task-adjacency remains recorded in trace metadata |
-| `--max_memory_quality_attempts` | 3 | Candidate regeneration attempts before a strategy is rejected |
+| `--strict_memory_quality` | disabled | Advanced curation gate; standard collection follows official evasiveness-only behavior |
 
 The attack operates in two phases: (1) **memory injection** — evasive preference statements are crafted and scored by an evasiveness judge (minimum 3.5/5.0), then injected into agent-accessible environments; (2) **exploitation** — retrieved poisoned memories provide false context that disables safety filtering on a target harmful request.
 
