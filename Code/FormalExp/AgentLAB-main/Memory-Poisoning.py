@@ -347,8 +347,17 @@ def get_shared_mem0(config):
                     f"hard_cap={config.mem0_max_native_threads})"
                 )
                 _mem0_initialized = True
-            except Exception as e:
-                print(f"Mem0 init failed: {e}")
+            except Exception as exc:
+                # Do not collapse the actual dependency/configuration error
+                # into the later generic "Mem0 is required" message.  This
+                # function can run inside a ProcessPool worker, where the
+                # parent traceback otherwise loses the failure cause.
+                _mem0_instance = None
+                print(
+                    f"Mem0 init failed ({type(exc).__name__}): {exc}",
+                    file=sys.stderr,
+                )
+                traceback.print_exc()
                 _mem0_initialized = True
         return _mem0_instance
 
