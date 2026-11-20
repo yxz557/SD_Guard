@@ -75,6 +75,7 @@ from typing import List, Dict, Optional, Tuple, Any
 from enum import Enum
 from pathlib import Path
 from abc import ABC, abstractmethod
+from types import MethodType
 
 # Hugging Face/SentenceTransformer embeddings are invoked many times in a full
 # Memory Poisoning run. Inherited large OpenMP pools can multiply across those
@@ -100,6 +101,10 @@ _MEM0_THREAD_ENV_VARS = (
 for _thread_env_name in _MEM0_THREAD_ENV_VARS:
     os.environ[_thread_env_name] = str(_EARLY_MEM0_CPU_THREADS)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# Mem0's anonymous usage telemetry is not part of the attack algorithm.  Its
+# implementation creates a fresh PostHog client for every memory operation,
+# which leaks native threads in a long offline trace collection job.
+os.environ["MEM0_TELEMETRY"] = "False"
 
 from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
 
@@ -397,6 +402,104 @@ def local_embedder_config(config):
     }
 
 
+def configure_mem0_serial_operations(mem_client):
+    """Use Mem0's own vector-store operations without its empty thread pools.
+
+    Mem0 0.1.118 dispatches every synchronous ``add``, ``search`` and
+    ``get_all`` through a fresh ``ThreadPoolExecutor``.  With graph memory
+    disabled (the AgentLAB configuration), those pools only execute one vector
+    operation plus a no-op graph operation.  In a long trace collection run
+    their native threads are retained by the process and eventually stall it.
+
+    This adapter preserves Mem0's message normalisation, filters, embeddings,
+    vector store, result format and call order.  It removes only that redundant
+    executor layer.  Graph memory retains upstream handling, and procedural
+    writes are delegated to upstream Mem0 because their semantics differ.
+    """
+    if getattr(mem_client, "_agentlab_serial_mem0_operations", False):
+        return "serial_vector_store_no_graph_telemetry_off"
+    if getattr(mem_client, "enable_graph", False):
+        return "upstream_graph_enabled"
+
+    try:
+        import mem0.memory.main as mem0_main
+        from mem0.memory.main import _build_filters_and_metadata, parse_vision_messages
+    except ImportError as exc:
+        raise RuntimeError(
+            "Mem0 serial operation adapter requires mem0ai 0.1.x internals"
+        ) from exc
+
+    # Mem0 0.1.118 constructs a fresh PostHog client for every capture_event.
+    # That telemetry path is outside the attack/data path and is the remaining
+    # source of linear native-thread growth after removing its executor layer.
+    mem0_main.capture_event = lambda *_args, **_kwargs: None
+
+    upstream_add = mem_client.add
+    def add_serial(self, messages, *, user_id=None, agent_id=None, run_id=None,
+                   metadata=None, infer=True, memory_type=None, prompt=None):
+        # The AgentLAB attack never uses procedural memory.  Delegate any such
+        # call instead of silently changing upstream behaviour.
+        if memory_type is not None:
+            return upstream_add(
+                messages, user_id=user_id, agent_id=agent_id, run_id=run_id,
+                metadata=metadata, infer=infer, memory_type=memory_type,
+                prompt=prompt,
+            )
+        processed_metadata, effective_filters = _build_filters_and_metadata(
+            user_id=user_id, agent_id=agent_id, run_id=run_id,
+            input_metadata=metadata,
+        )
+        if isinstance(messages, str):
+            messages = [{"role": "user", "content": messages}]
+        elif isinstance(messages, dict):
+            messages = [messages]
+        elif not isinstance(messages, list):
+            # Let Mem0 retain its own detailed validation error for unsupported
+            # payload types; normal AgentLAB calls never take this path.
+            return upstream_add(
+                messages, user_id=user_id, agent_id=agent_id, run_id=run_id,
+                metadata=metadata, infer=infer, prompt=prompt,
+            )
+        if self.config.llm.config.get("enable_vision"):
+            messages = parse_vision_messages(
+                messages, self.llm, self.config.llm.config.get("vision_details"))
+        else:
+            messages = parse_vision_messages(messages)
+        result = self._add_to_vector_store(
+            messages, processed_metadata, effective_filters, infer)
+        return result if self.api_version == "v1.0" else {"results": result}
+
+    def get_all_serial(self, *, user_id=None, agent_id=None, run_id=None,
+                       filters=None, limit=100):
+        _, effective_filters = _build_filters_and_metadata(
+            user_id=user_id, agent_id=agent_id, run_id=run_id,
+            input_filters=filters,
+        )
+        if not any(key in effective_filters for key in ("user_id", "agent_id", "run_id")):
+            raise ValueError("At least one of 'user_id', 'agent_id', or 'run_id' must be specified.")
+        result = self._get_all_from_vector_store(effective_filters, limit)
+        return result if self.api_version == "v1.0" else {"results": result}
+
+    def search_serial(self, query, *, user_id=None, agent_id=None, run_id=None,
+                      limit=100, filters=None, threshold=None):
+        _, effective_filters = _build_filters_and_metadata(
+            user_id=user_id, agent_id=agent_id, run_id=run_id,
+            input_filters=filters,
+        )
+        if not any(key in effective_filters for key in ("user_id", "agent_id", "run_id")):
+            raise ValueError("At least one of 'user_id', 'agent_id', or 'run_id' must be specified.")
+        result = self._search_vector_store(query, effective_filters, limit, threshold)
+        # Mem0 0.1.118 wraps search results in ``results`` for both supported
+        # API versions; retain that exact public shape.
+        return {"results": result}
+
+    mem_client.add = MethodType(add_serial, mem_client)
+    mem_client.get_all = MethodType(get_all_serial, mem_client)
+    mem_client.search = MethodType(search_serial, mem_client)
+    mem_client._agentlab_serial_mem0_operations = True
+    return "serial_vector_store_no_graph_telemetry_off"
+
+
 def get_shared_mem0(config):
     global _mem0_instance, _mem0_initialized
     if not MEM0_AVAILABLE:
@@ -460,6 +563,12 @@ def get_shared_mem0(config):
                     # adapter; vector storage and embedding remain native Mem0.
                     _mem0_instance.llm = OpenAICompatibleMem0LLM(
                         api_key, base_url, llm_model, config.auxiliary_thinking)
+                config._mem0_operation_mode = configure_mem0_serial_operations(
+                    _mem0_instance)
+                print(
+                    "Mem0 operation mode: "
+                    f"{config._mem0_operation_mode}"
+                )
                 if getattr(config, "enforce_native_thread_budget", False):
                     # Advanced diagnostic only. Standard trace collection
                     # follows the official runner and does not add an extra
@@ -1761,7 +1870,9 @@ class AttackExecutor:
                         "collection_name": self.config.mem0_collection_name,
                         "runtime_dir": getattr(
                             self.config, "_mem0_runtime_dir", None),
-                        "operation_mode": "upstream_best_effort",
+                        "operation_mode": getattr(
+                            self.config, "_mem0_operation_mode",
+                            "uninitialized"),
                         "cpu_threads": self.config.mem0_cpu_threads,
                         "max_native_threads": self.config.mem0_max_native_threads,
                         "native_thread_headroom": self.config.mem0_native_thread_headroom,
