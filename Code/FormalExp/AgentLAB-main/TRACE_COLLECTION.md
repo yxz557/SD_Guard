@@ -341,7 +341,7 @@ conda activate /root/autodl-tmp/conda-envs/agentlab-memory
 export SD_ROOT=/root/autodl-tmp/Code/SD_Guard
 export AL_ROOT="$SD_ROOT/Code/FormalExp/AgentLAB-main"
 export RUN_ROOT="$SD_ROOT/results/agentlab/qwen3_8b_nothink_v1"
-export MEMORY_ROOT="$RUN_ROOT/memory_poisoning_deepseek_flash"
+export MEMORY_ROOT="$RUN_ROOT/memory_poisoning_official_deepseek_flash"
 export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
 cd "$AL_ROOT"
 
@@ -372,7 +372,7 @@ python Memory-Poisoning.py \
   --target_samples 2 \
   --start_idx 0 \
   --num_strategies 3 \
-  --memory_planner_prompt_variant deepseek_preference_v2 \
+  --memory_planner_prompt_variant official \
   --min_evasiveness_score 3.5 \
   --require_mem0 \
   --fixed_output_dir \
@@ -617,7 +617,7 @@ conda activate /root/autodl-tmp/conda-envs/agentlab-memory
 export SD_ROOT=/root/autodl-tmp/Code/SD_Guard
 export AL_ROOT="$SD_ROOT/Code/FormalExp/AgentLAB-main"
 export RUN_ROOT="$SD_ROOT/results/agentlab/qwen3_8b_nothink_v1"
-export MEMORY_ROOT="$RUN_ROOT/memory_poisoning_deepseek_flash"
+export MEMORY_ROOT="$RUN_ROOT/memory_poisoning_official_deepseek_flash"
 export VICTIM_MODEL_NAME=Qwen/Qwen3-8B
 cd "$AL_ROOT"
 
@@ -648,7 +648,7 @@ python Memory-Poisoning.py \
   --target_samples 200 \
   --start_idx 0 \
   --num_strategies 3 \
-  --memory_planner_prompt_variant deepseek_preference_v2 \
+  --memory_planner_prompt_variant official \
   --min_evasiveness_score 3.5 \
   --require_mem0 \
   --fixed_output_dir \
