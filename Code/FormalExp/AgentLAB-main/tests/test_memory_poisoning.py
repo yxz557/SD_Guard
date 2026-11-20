@@ -183,6 +183,22 @@ class MemoryPoisoningTests(unittest.TestCase):
             )
         self.assertEqual(config._mem0_native_thread_baseline, 503)
 
+    def test_mem0_warmup_records_post_pool_baseline_and_cleans_up(self):
+        config = SimpleNamespace(mem0_max_native_threads=2048)
+        mem0 = FakeMem0()
+        with patch.object(
+            memory_poisoning, "native_thread_count", return_value=262,
+        ), patch.object(memory_poisoning.time, "sleep"):
+            info = memory_poisoning.warmup_mem0_native_pools(config, mem0)
+
+        self.assertEqual(info["baseline"], 262)
+        self.assertEqual(config._mem0_native_thread_baseline, 262)
+        self.assertEqual(mem0.items, [])
+        self.assertTrue(any(
+            item["stage"] == "after_search"
+            for item in info["observations"]
+        ))
+
     def test_sample_worker_config_has_isolated_mem0_state(self):
         config = memory_poisoning.Config(
             mem0_vector_path="/tmp/agentlab-memory/mem0_qdrant",
@@ -416,7 +432,9 @@ class MemoryPoisoningTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(evaluation, memory_poisoning.BehaviorEval.ERROR)
+        self.assertEqual(
+            evaluation, memory_poisoning.BehaviorEval.QUALITY_REJECTED,
+        )
         self.assertEqual(scores, [1.0])
         self.assertEqual(
             details["error"], "Memory quality gate rejected all candidates",
