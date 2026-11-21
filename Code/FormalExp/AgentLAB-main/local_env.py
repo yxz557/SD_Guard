@@ -14,6 +14,8 @@ from typing import Iterable, Optional, Tuple
 
 AGENTLAB_ROOT = Path(__file__).resolve().parent
 DEFAULT_SECRETS_FILE = AGENTLAB_ROOT / "config" / "local_secrets.env"
+OFFICIAL_OPENAI_BASE_URL = "https://api.openai.com/v1"
+OFFICIAL_JUDGE_MODEL = "gpt-5.1"
 
 
 def _strip_quotes(value: str) -> str:
@@ -89,3 +91,30 @@ def validate_secret_value(name: str, value: Optional[str]) -> str:
     except UnicodeEncodeError as exc:
         raise ValueError(f"{name} must contain ASCII characters only") from exc
     return value
+
+
+def is_deepseek_endpoint(base_url: Optional[str]) -> bool:
+    """Return whether an OpenAI-compatible endpoint is DeepSeek-hosted."""
+
+    return bool(base_url and "deepseek.com" in base_url.lower())
+
+
+def resolve_auxiliary_api_key(
+    *,
+    base_url: Optional[str],
+    model: Optional[str],
+    explicit_value: Optional[str] = None,
+) -> str:
+    """Select the credential that belongs to the configured auxiliary API.
+
+    The official AgentLAB profile uses OpenAI GPT-5.1.  Older SD_Guard runs
+    used DeepSeek and may leave both provider keys in ``local_secrets.env``.
+    Selecting by endpoint/model prevents a stale DeepSeek key from being sent
+    to the OpenAI API merely because it happens to be present.
+    """
+
+    if explicit_value:
+        return explicit_value
+    if is_deepseek_endpoint(base_url) or (model or "").lower().startswith("deepseek-"):
+        return os.environ.get("DEEPSEEK_API_KEY", "")
+    return os.environ.get("OPENAI_API_KEY", "")

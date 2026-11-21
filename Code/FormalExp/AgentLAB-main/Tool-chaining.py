@@ -103,7 +103,14 @@ from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
-from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
+from local_env import (
+    DEFAULT_SECRETS_FILE,
+    OFFICIAL_JUDGE_MODEL,
+    OFFICIAL_OPENAI_BASE_URL,
+    load_local_env,
+    resolve_auxiliary_api_key,
+    validate_secret_value,
+)
 from copy import deepcopy
 from abc import ABC, abstractmethod
 from ast import literal_eval
@@ -2287,15 +2294,10 @@ def main():
                     ", ".join(loaded_names) if loaded_names else "no values")
 
     aux_base_default = (
-        os.environ.get("AUX_BASE_URL")
-        or os.environ.get("OPENAI_BASE_URL")
-        or ("https://api.deepseek.com" if os.environ.get("DEEPSEEK_API_KEY") else None)
+        os.environ.get("OPENAI_BASE_URL")
+        or OFFICIAL_OPENAI_BASE_URL
     )
-    aux_model_default = (
-        os.environ.get("AUX_MODEL")
-        or ("deepseek-flash" if aux_base_default and "deepseek" in aux_base_default.lower()
-            else "gpt-5.1")
-    )
+    aux_model_default = OFFICIAL_JUDGE_MODEL
     aux_thinking_default = (
         "off" if aux_base_default and "deepseek" in aux_base_default.lower() else "server"
     )
@@ -2326,8 +2328,8 @@ Examples:
                         help="Model for planner and judge (auto-selects deepseek-flash for DeepSeek)")
     parser.add_argument("--aux_base_url", default=aux_base_default,
                         help="OpenAI-compatible URL for planner/judge")
-    parser.add_argument("--aux_api_key", default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
-                        help="API key for the planner/judge endpoint")
+    parser.add_argument("--aux_api_key", default=None,
+                        help="API key override; normally loaded from config/local_secrets.env")
     parser.add_argument("--aux_thinking", choices=["server", "on", "off"],
                         default=aux_thinking_default, help="Auxiliary model thinking mode")
     parser.add_argument("--secrets_file", "--secrets-file", default=str(secrets_path),
@@ -2402,11 +2404,19 @@ Examples:
         print(f"Resolved {len(resolved)} Agent_SafetyBench attacks.")
         return
 
+    args.aux_api_key = resolve_auxiliary_api_key(
+        base_url=args.aux_base_url,
+        model=args.attacker_model,
+        explicit_value=args.aux_api_key,
+    )
     try:
         args.aux_api_key = validate_secret_value("auxiliary API key", args.aux_api_key)
     except ValueError as exc:
         print(f"{RED}{exc}.{ENDC}")
-        print(f"Fill DEEPSEEK_API_KEY once in: {secrets_path}")
+        provider_key = ("DEEPSEEK_API_KEY" if args.aux_base_url and
+                        "deepseek" in args.aux_base_url.lower()
+                        else "OPENAI_API_KEY")
+        print(f"Fill {provider_key} once in: {secrets_path}")
         return
     
     # Check API keys

@@ -106,7 +106,14 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # which leaks native threads in a long offline trace collection job.
 os.environ["MEM0_TELEMETRY"] = "False"
 
-from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
+from local_env import (
+    DEFAULT_SECRETS_FILE,
+    OFFICIAL_JUDGE_MODEL,
+    OFFICIAL_OPENAI_BASE_URL,
+    load_local_env,
+    resolve_auxiliary_api_key,
+    validate_secret_value,
+)
 
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 from openai import OpenAI, BadRequestError, APIConnectionError
@@ -2762,14 +2769,10 @@ def main():
                     ", ".join(loaded_names) if loaded_names else "no values")
 
     aux_base_default = (
-        os.environ.get("AUX_BASE_URL")
-        or os.environ.get("OPENAI_BASE_URL")
-        or ("https://api.deepseek.com" if os.environ.get("DEEPSEEK_API_KEY") else "")
+        os.environ.get("OPENAI_BASE_URL")
+        or OFFICIAL_OPENAI_BASE_URL
     )
-    aux_model_default = (
-        os.environ.get("AUX_MODEL")
-        or ("deepseek-flash" if "deepseek" in aux_base_default.lower() else "gpt-5.1")
-    )
+    aux_model_default = OFFICIAL_JUDGE_MODEL
     aux_thinking_default = "off" if "deepseek" in aux_base_default.lower() else "server"
     parser = argparse.ArgumentParser(
         description="AgentLAB Memory Injection Attack v5.4 (official-style trace capture)",
@@ -2823,8 +2826,8 @@ EXAMPLES:
     parser.add_argument("--aux_base_url", default=aux_base_default,
                         help="OpenAI-compatible URL for planner/judge/attacker and Mem0 LLM")
     parser.add_argument("--aux_api_key",
-                        default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY", ""),
-                        help="Auxiliary endpoint key (defaults to DEEPSEEK_API_KEY, then OPENAI_API_KEY)")
+                        default=None,
+                        help="API key override; normally loaded from config/local_secrets.env")
     parser.add_argument("--aux_thinking", choices=["server", "on", "off"],
                         default=aux_thinking_default, help="Auxiliary model thinking mode")
     parser.add_argument("--secrets_file", "--secrets-file", default=str(secrets_path),
@@ -2922,14 +2925,22 @@ EXAMPLES:
     if not 1.0 <= args.min_evasiveness_score <= 5.0:
         parser.error("--min_evasiveness_score must be between 1 and 5")
 
+    aux_model = args.aux_model or aux_model_default
+    args.aux_api_key = resolve_auxiliary_api_key(
+        base_url=args.aux_base_url,
+        model=aux_model,
+        explicit_value=args.aux_api_key,
+    )
     try:
         args.aux_api_key = validate_secret_value("auxiliary API key", args.aux_api_key)
     except ValueError as exc:
         print(f"{RED}{exc}.{ENDC}")
-        print(f"Fill DEEPSEEK_API_KEY once in: {secrets_path}")
+        provider_key = ("DEEPSEEK_API_KEY" if args.aux_base_url and
+                        "deepseek" in args.aux_base_url.lower()
+                        else "OPENAI_API_KEY")
+        print(f"Fill {provider_key} once in: {secrets_path}")
         return
 
-    aux_model = args.aux_model or aux_model_default
     if (args.aux_base_url and "deepseek" in args.aux_base_url.lower()
             and not aux_model.lower().startswith("deepseek-")):
         print(f"{YELLOW}Overriding incompatible auxiliary model "
@@ -2975,7 +2986,7 @@ EXAMPLES:
 
     # Validate keys
     if not config.auxiliary_api_key:
-        print(f"{RED}DEEPSEEK_API_KEY/OPENAI_API_KEY or --aux_api_key required (planner/judge){ENDC}"); return
+        print(f"{RED}OPENAI_API_KEY or --aux_api_key required (planner/judge){ENDC}"); return
     if 'anthropic' in args.targets and not config.anthropic_api_key:
         print(f"{RED}ANTHROPIC_API_KEY required{ENDC}"); return
     if 'google' in args.targets and not config.google_api_key:

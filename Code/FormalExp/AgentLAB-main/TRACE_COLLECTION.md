@@ -1,5 +1,10 @@
 # AgentLAB Qwen3-8B raw-trace runbook
 
+> The current fixed-path, official-style GPT-5.1 launcher is documented in
+> `document/experiments/qwen3_8b_agentlab_gpt51_official.md`. The long commands
+> below are retained as historical DeepSeek campaign records and should not be
+> copied for new formal runs.
+
 The four non-AgentDojo runners write the same immutable artifact envelope used
 by the Task Injection export:
 

@@ -35,7 +35,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
+from local_env import DEFAULT_SECRETS_FILE, load_local_env
 
 ROOT_DIR = Path(__file__).parent.resolve()
 WEBSHOP_ENV_DIR = ROOT_DIR / "envs" / "webshop"
@@ -408,15 +408,6 @@ Examples:
     else:
         print(f"{YELLOW}Local configuration not found: {secrets_path}{NC}")
         print(f"Copy config/local_secrets.env.example to config/local_secrets.env and fill it once.")
-
-    aux_base_url = os.environ.get("AUX_BASE_URL", "")
-    if "deepseek" in aux_base_url.lower():
-        try:
-            validate_secret_value("DEEPSEEK_API_KEY", os.environ.get("DEEPSEEK_API_KEY"))
-        except ValueError as exc:
-            print(f"{RED}{exc}.{NC}")
-            print(f"Fill the real key once in: {secrets_path}")
-            sys.exit(2)
 
     # Ensure WebShop env is ready before any attack
     print(f"{CYAN}{'='*60}")

@@ -15,9 +15,16 @@ nano config/local_secrets.env
 chmod 600 config/local_secrets.env
 ```
 
-Fill `DEEPSEEK_API_KEY` with the real key. Do not add quotes unless the value
+Fill `OPENAI_API_KEY` with the real key. Do not add quotes unless the value
 actually contains spaces. The local file is ignored by Git; the example file
-contains no secret and is tracked.
+contains no secret and is tracked. The formal profile uses the official OpenAI
+endpoint and GPT-5.1 by default; old `AUX_MODEL` / `AUX_BASE_URL` values are no
+longer used as implicit formal-run defaults.
+
+Stable server paths, model paths, output roots, offline Hugging Face settings,
+and role-specific model choices live in `qwen3_8b_official_profile.py`. They do
+not belong in this secrets file. A normal run therefore needs no repeated
+`export SD_ROOT=...`, `export RUN_ROOT=...`, or auxiliary-model flags.
 
 The default file may be changed with `--secrets_file /absolute/path/to/file` or
 the `AGENTLAB_SECRETS_FILE` environment variable. Values from the selected file

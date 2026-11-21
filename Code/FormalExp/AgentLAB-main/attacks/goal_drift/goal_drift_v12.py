@@ -35,7 +35,13 @@ AGENTLAB_ROOT = Path(__file__).resolve().parents[2]
 if str(AGENTLAB_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENTLAB_ROOT))
 
-from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
+from local_env import (
+    DEFAULT_SECRETS_FILE,
+    OFFICIAL_OPENAI_BASE_URL,
+    load_local_env,
+    resolve_auxiliary_api_key,
+    validate_secret_value,
+)
 from trace_artifacts import assistant_message_dict, redact_secrets, write_raw_trace
 
 try:
@@ -59,7 +65,10 @@ def print_header(text):
 
 def create_aux_completion(client, model: str, thinking_mode: str = "server", **kwargs):
     """Call an OpenAI-compatible auxiliary model with provider-safe thinking controls."""
-    if "deepseek" in model.lower() and thinking_mode in ("on", "off"):
+    normalized_model = model.lower()
+    if normalized_model.startswith(("gpt-5", "o3", "o4")) and "max_tokens" in kwargs:
+        kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+    if "deepseek" in normalized_model and thinking_mode in ("on", "off"):
         extra_body = dict(kwargs.pop("extra_body", {}) or {})
         extra_body["thinking"] = {
             "type": "enabled" if thinking_mode == "on" else "disabled"
@@ -1412,11 +1421,8 @@ def main():
         print(f"{Colors.GREEN}✓ Loaded local configuration: {secrets_path} ({names}){Colors.ENDC}")
 
     p=argparse.ArgumentParser(description="Goal Drift v12 — Unified All-Victim")
-    aux_base_default=(os.environ.get("AUX_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
-                      or ("https://api.deepseek.com" if os.environ.get("DEEPSEEK_API_KEY") else None))
-    aux_model_default=(os.environ.get("AUX_MODEL")
-                       or ("deepseek-flash" if aux_base_default and "deepseek" in aux_base_default.lower()
-                           else None))
+    aux_base_default=(os.environ.get("OPENAI_BASE_URL")
+                      or OFFICIAL_OPENAI_BASE_URL)
     aux_thinking_default=("off" if aux_base_default and "deepseek" in aux_base_default.lower()
                           else "server")
     p.add_argument("--victim_model",type=str,default="gpt-4o")
@@ -1428,15 +1434,15 @@ def main():
     p.add_argument("--victim_max_tokens",type=int,default=None)
     p.add_argument("--victim_thinking",choices=["server","on","off"],default="server",
                    help="Qwen thinking mode; on/off is sent per request")
-    p.add_argument("--attacker_model",type=str,default=aux_model_default or "gpt-5.2")
-    p.add_argument("--judge_model",type=str,default=aux_model_default or "gpt-5.1")
-    p.add_argument("--extractor_model",type=str,default=aux_model_default or "gpt-5.1")
-    p.add_argument("--stealthiness_model",type=str,default=aux_model_default or "gpt-5.1")
+    p.add_argument("--attacker_model",type=str,default="gpt-5.2")
+    p.add_argument("--judge_model",type=str,default="gpt-5.1")
+    p.add_argument("--extractor_model",type=str,default="gpt-5.1")
+    p.add_argument("--stealthiness_model",type=str,default="gpt-5.1")
     p.add_argument("--aux_base_url",type=str,default=aux_base_default,
                    help="OpenAI-compatible URL for attacker/judge/extractor")
     p.add_argument("--aux_api_key",type=str,
-                   default=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
-                   help="Auxiliary endpoint key (defaults to DEEPSEEK_API_KEY, then OPENAI_API_KEY)")
+                   default=None,
+                   help="API key override; normally loaded from config/local_secrets.env")
     p.add_argument("--aux_thinking",choices=["server","on","off"],default=aux_thinking_default,
                    help="Auxiliary reasoning mode; DeepSeek on/off is sent per request")
     p.add_argument("--secrets_file","--secrets-file",default=str(secrets_path),
@@ -1484,11 +1490,19 @@ def main():
             print(f"{Colors.YELLOW}DeepSeek thinking defaults on; forcing auxiliary thinking off{Colors.ENDC}")
             a.aux_thinking="off"
 
+    a.aux_api_key=resolve_auxiliary_api_key(
+        base_url=a.aux_base_url,
+        model=a.judge_model,
+        explicit_value=a.aux_api_key,
+    )
     try:
         a.aux_api_key=validate_secret_value("auxiliary API key",a.aux_api_key)
     except ValueError as exc:
         print(f"{Colors.RED}{exc}.{Colors.ENDC}")
-        print(f"Fill DEEPSEEK_API_KEY once in: {secrets_path}")
+        provider_key=("DEEPSEEK_API_KEY" if a.aux_base_url and
+                      "deepseek" in a.aux_base_url.lower()
+                      else "OPENAI_API_KEY")
+        print(f"Fill {provider_key} once in: {secrets_path}")
         sys.exit(2)
 
     trace_run_id=(a.run_id

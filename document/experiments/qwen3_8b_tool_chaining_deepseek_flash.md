@@ -1,5 +1,9 @@
 # Qwen3-8B AgentLAB Tool Chaining 完整运行说明
 
+> **历史说明：** 本文记录已经完成的 DeepSeek-Flash 条件，不再作为新正式运行命令。
+> 新的官方式 GPT-5.1 planner/judge 配置和无重复 export 的最短命令见
+> `qwen3_8b_agentlab_gpt51_official.md`。已有 DeepSeek 结果不可覆盖。
+
 ## 1. 文档目的
 
 本文记录 SD_Guard 正式实验中 AgentLAB Tool Chaining 的任务含义、运行脚本、

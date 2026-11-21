@@ -53,6 +53,27 @@ class GoalDriftV12Tests(unittest.TestCase):
                 pass
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
+    def test_gpt5_auxiliary_call_uses_completion_token_parameter(self) -> None:
+        captured = {}
+
+        class Completions:
+            @staticmethod
+            def create(**kwargs):
+                captured.update(kwargs)
+                return object()
+
+        client = types.SimpleNamespace(
+            chat=types.SimpleNamespace(completions=Completions())
+        )
+        goal_drift.create_aux_completion(
+            client,
+            "gpt-5.1",
+            messages=[{"role": "user", "content": "OK"}],
+            max_tokens=16,
+        )
+        self.assertEqual(captured["max_completion_tokens"], 16)
+        self.assertNotIn("max_tokens", captured)
+
     def test_extracts_every_size_and_color_without_product_title(self) -> None:
         self.assertEqual(
             self.agent._extract_options(self.ITEM_OBSERVATION, "color"),
