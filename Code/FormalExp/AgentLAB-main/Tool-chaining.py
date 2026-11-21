@@ -1939,7 +1939,14 @@ class AdaptivePlanningSystem:
             crafted_prompts, agent_outputs, batch_size
         )
         
-        if not judge_outputs:
+        active_indices = [
+            index for index, is_running in enumerate(self.running) if is_running
+        ]
+        if (not judge_outputs
+                or len(judge_outputs) != len(self.running)
+                or any(judge_outputs[index] is None for index in active_indices)):
+            logger.error(
+                "Judge produced no valid result for one or more active instances")
             return False
         
         for i in range(len(self.running)):
