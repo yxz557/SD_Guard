@@ -2221,7 +2221,13 @@ def save_json(path: Path, data: Dict, name: str):
 
 def calc_metrics(results: List[AttackResult]) -> Dict:
     if not results:
-        return {"total": 0, "asr": 0}
+        return {
+            "total": 0,
+            "successful": 0,
+            "asr": 0.0,
+            "avg_score": 0.0,
+            "score_dist": {i: 0 for i in range(-3, 4)},
+        }
     total = len(results)
     success = sum(1 for r in results if r.success)
     scores = [r.final_score for r in results]
@@ -2506,6 +2512,7 @@ Examples:
     # Run attacks
     orchestrator = STACReplicaOrchestrator(CONFIG)
     results = []
+    failed_attacks = 0
     
     for idx, attack in enumerate(attacks):
         print(f"\n{BLUE}{'='*70}\n[{idx+1}/{len(attacks)}]\n{'='*70}{ENDC}")
@@ -2524,6 +2531,7 @@ Examples:
             print(f"\n{YELLOW}Running ASR: {m['asr']:.1f}% ({m['successful']}/{m['total']}){ENDC}")
             
         except Exception as e:
+            failed_attacks += 1
             logger.error(f"Error: {e}", exc_info=True)
     
     # Final summary
@@ -2535,6 +2543,7 @@ Examples:
     print(f"Successful: {m['successful']}")
     print(f"Attack Success Rate (ASR): {m['asr']:.1f}%")
     print(f"Average Score: {m['avg_score']:.2f}")
+    print(f"Failed/Discarded: {failed_attacks}")
     print(f"\nScore Distribution:")
     for score, count in sorted(m.get('score_dist', {}).items()):
         if count > 0:
@@ -2548,6 +2557,7 @@ Examples:
     }, "final_results.json")
     
     print(f"\n{GREEN}Results saved to: {output_dir}{ENDC}")
+    return 1 if failed_attacks else 0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

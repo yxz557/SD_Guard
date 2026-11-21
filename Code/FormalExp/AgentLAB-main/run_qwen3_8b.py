@@ -20,7 +20,12 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from local_env import DEFAULT_SECRETS_FILE, load_local_env, validate_secret_value
+from local_env import (
+    DEFAULT_SECRETS_FILE,
+    OFFICIAL_OPENAI_BASE_URL,
+    load_local_env,
+    validate_secret_value,
+)
 from qwen3_8b_official_profile import (
     AGENTLAB_ROOT,
     DATASET_MEMORY,
@@ -61,6 +66,39 @@ def _check_health(url: str) -> None:
         raise RuntimeError(f"Required local service is not healthy at {url}: {exc}") from exc
 
 
+def _check_auxiliary_api(base_url: str, api_key: str) -> None:
+    """Fail fast unless the configured GPT-5.1 endpoint accepts a real request."""
+    request = urllib.request.Request(
+        f"{base_url.rstrip('/')}/chat/completions",
+        data=json.dumps({
+            "model": GPT51_MODEL,
+            "messages": [{"role": "user", "content": "Reply exactly: OK"}],
+            "max_completion_tokens": 16,
+        }).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read(2000).decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"GPT-5.1 preflight returned HTTP {exc.code}: {body}"
+        ) from exc
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"Cannot reach GPT-5.1 endpoint {base_url}: {exc}"
+        ) from exc
+    if not payload.get("choices"):
+        raise RuntimeError(
+            f"GPT-5.1 preflight returned no choices from {base_url}"
+        )
+
+
 def _required_paths(task: str) -> tuple[Path, ...]:
     common = (AGENTLAB_ROOT, VLLM_ENV, VICTIM_MODEL_PATH, DATASET_TOOL_INTENT)
     if task == "intent-hijacking":
@@ -94,7 +132,9 @@ def _run_with_log(command: tuple[str, ...], log_file: Path, environment: dict[st
         return process.wait()
 
 
-def _write_manifest(spec, task: str, scale: str, run_tag: str | None) -> None:
+def _write_manifest(
+    spec, task: str, scale: str, run_tag: str | None, auxiliary_base_url: str,
+) -> None:
     payload = {
         "schema_version": "sd_guard.agentlab_launcher.v1",
         "task": task,
@@ -102,7 +142,10 @@ def _write_manifest(spec, task: str, scale: str, run_tag: str | None) -> None:
         "run_tag": run_tag,
         "launcher_recorded_at": datetime.now(timezone.utc).isoformat(),
         "official_evaluator_model": GPT51_MODEL,
-        "official_openai_base_url": OPENAI_BASE_URL,
+        "auxiliary_base_url": auxiliary_base_url,
+        "uses_official_openai_endpoint": (
+            auxiliary_base_url == OFFICIAL_OPENAI_BASE_URL
+        ),
         "command": list(spec.command),
         "environment": dict(spec.environment or {}),
     }
@@ -132,12 +175,31 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    try:
+        secrets_path, _ = load_local_env(str(DEFAULT_SECRETS_FILE), override=True)
+    except ValueError as exc:
+        print(f"Invalid local configuration: {exc}", file=sys.stderr)
+        return 2
+
+    auxiliary_base_url = (
+        os.environ.get("OPENAI_BASE_URL") or OPENAI_BASE_URL
+    ).strip().rstrip("/")
+    if not auxiliary_base_url.startswith(("https://", "http://")):
+        print(
+            "OPENAI_BASE_URL must start with https:// or http://",
+            file=sys.stderr,
+        )
+        return 2
+
     task = TASK_ALIASES[args.task]
-    specs = build_run_specs(task, args.scale, args.run_tag)
+    specs = build_run_specs(
+        task, args.scale, args.run_tag,
+        auxiliary_base_url=auxiliary_base_url,
+    )
 
     print(f"Task       : {task}")
     print(f"Scale      : {args.scale}")
-    print(f"Judge      : {GPT51_MODEL} @ {OPENAI_BASE_URL}")
+    print(f"Judge      : {GPT51_MODEL} @ {auxiliary_base_url}")
     for spec in specs:
         print(f"Run dir    : {spec.run_dir}")
         print(f"Command    : {shlex.join(spec.command)}")
@@ -151,10 +213,10 @@ def main() -> int:
             print(f"Missing required server path: {path}", file=sys.stderr)
         return 2
 
-    secrets_path = DEFAULT_SECRETS_FILE.resolve()
     try:
-        secrets_path, _ = load_local_env(str(DEFAULT_SECRETS_FILE), override=True)
-        validate_secret_value("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY"))
+        api_key = validate_secret_value(
+            "OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY"),
+        )
     except ValueError as exc:
         print(f"Invalid OpenAI configuration: {exc}", file=sys.stderr)
         print(f"Fill OPENAI_API_KEY once in: {secrets_path}", file=sys.stderr)
@@ -181,9 +243,18 @@ def main() -> int:
                     checked.add(url)
                     print(f"Healthy     : {url}")
 
+    try:
+        _check_auxiliary_api(auxiliary_base_url, api_key)
+    except RuntimeError as exc:
+        print(f"Auxiliary API preflight failed: {exc}", file=sys.stderr)
+        return 2
+    print(f"GPT-5.1 API : healthy at {auxiliary_base_url}")
+
     for spec in specs:
         spec.run_dir.mkdir(parents=True, exist_ok=True)
-        _write_manifest(spec, task, args.scale, args.run_tag)
+        _write_manifest(
+            spec, task, args.scale, args.run_tag, auxiliary_base_url,
+        )
         print(f"\nStarting {spec.name}; log: {spec.log_file}")
         return_code = _run_with_log(
             spec.command, spec.log_file, spec.environment or {},

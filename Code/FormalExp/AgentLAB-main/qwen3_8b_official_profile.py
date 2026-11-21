@@ -37,7 +37,9 @@ INTENT_ATTACKER_HEALTH_URL = "http://127.0.0.1:8000/health"
 
 MEM0_EMBEDDER_PATH = Path("/root/autodl-tmp/models/all-MiniLM-L6-v2")
 
-OPENAI_BASE_URL = "https://api.openai.com/v1"
+# The user's key is issued by ChatAnywhere. This OpenAI-compatible endpoint
+# serves the official AgentLAB model IDs used below.
+OPENAI_BASE_URL = "https://api.chatanywhere.tech/v1"
 GPT51_MODEL = "gpt-5.1"
 OBJECTIVE_ATTACKER_MODEL = "gpt-5.2"
 
@@ -100,7 +102,11 @@ def _common_victim_args() -> list[str]:
     ]
 
 
-def _tool_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
+def _tool_specs(
+    scale: str,
+    run_tag: str | None,
+    auxiliary_base_url: str = OPENAI_BASE_URL,
+) -> list[RunSpec]:
     root = task_run_root("tool-chaining", scale, run_tag)
     backends: Sequence[tuple[str | None, int]]
     if scale == "smoke":
@@ -117,7 +123,7 @@ def _tool_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
             "--victim_base_url", VICTIM_BASE_URL,
             *_common_victim_args(),
             "--attacker_model", GPT51_MODEL,
-            "--aux_base_url", OPENAI_BASE_URL,
+            "--aux_base_url", auxiliary_base_url,
             "--aux_thinking", "server",
             "--dataset", str(DATASET_TOOL_INTENT),
             "--num_samples", str(count),
@@ -140,7 +146,11 @@ def _tool_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
     return specs
 
 
-def _intent_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
+def _intent_specs(
+    scale: str,
+    run_tag: str | None,
+    auxiliary_base_url: str = OPENAI_BASE_URL,
+) -> list[RunSpec]:
     run_dir = task_run_root("intent-hijacking", scale, run_tag)
     count = 2 if scale == "smoke" else 200
     cmd = [
@@ -151,7 +161,7 @@ def _intent_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
         "--attacker_url", INTENT_ATTACKER_BASE_URL,
         "--attacker_model", INTENT_ATTACKER_MODEL_NAME,
         "--planner_judge_model", GPT51_MODEL,
-        "--aux_base_url", OPENAI_BASE_URL,
+        "--aux_base_url", auxiliary_base_url,
         "--aux_thinking", "server",
         "--dataset", str(DATASET_TOOL_INTENT),
         "--num_samples", str(count),
@@ -175,7 +185,11 @@ def _intent_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
     )]
 
 
-def _objective_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
+def _objective_specs(
+    scale: str,
+    run_tag: str | None,
+    auxiliary_base_url: str = OPENAI_BASE_URL,
+) -> list[RunSpec]:
     run_dir = task_run_root("objective-drifting", scale, run_tag)
     count = 2 if scale == "smoke" else 6910
     workers = 2 if scale == "smoke" else 4
@@ -190,7 +204,7 @@ def _objective_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
         "--judge_model", GPT51_MODEL,
         "--extractor_model", GPT51_MODEL,
         "--stealthiness_model", GPT51_MODEL,
-        "--aux_base_url", OPENAI_BASE_URL,
+        "--aux_base_url", auxiliary_base_url,
         "--aux_thinking", "server",
         "--num_tasks", str(count),
         "--num_seeds", "1",
@@ -213,7 +227,11 @@ def _objective_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
     )]
 
 
-def _memory_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
+def _memory_specs(
+    scale: str,
+    run_tag: str | None,
+    auxiliary_base_url: str = OPENAI_BASE_URL,
+) -> list[RunSpec]:
     run_dir = task_run_root("memory-poisoning", scale, run_tag)
     count = 2 if scale == "smoke" else 200
     run_id = f"qwen3_8b_memory_poisoning_gpt51_{_tagged_scale(scale, run_tag)}"
@@ -229,7 +247,7 @@ def _memory_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
         "--local_max_tokens", "768",
         "--local_thinking", "off",
         "--aux_model", GPT51_MODEL,
-        "--aux_base_url", OPENAI_BASE_URL,
+        "--aux_base_url", auxiliary_base_url,
         "--aux_thinking", "server",
         "--mem0_mode", "compatible",
         "--mem0_llm_model", GPT51_MODEL,
@@ -261,7 +279,12 @@ def _memory_specs(scale: str, run_tag: str | None) -> list[RunSpec]:
     )]
 
 
-def build_run_specs(task: str, scale: str, run_tag: str | None = None) -> list[RunSpec]:
+def build_run_specs(
+    task: str,
+    scale: str,
+    run_tag: str | None = None,
+    auxiliary_base_url: str = OPENAI_BASE_URL,
+) -> list[RunSpec]:
     if task not in TASK_RESULT_DIRS:
         raise ValueError(f"Unknown task: {task}")
     if scale not in {"smoke", "full"}:
@@ -272,4 +295,4 @@ def build_run_specs(task: str, scale: str, run_tag: str | None = None) -> list[R
         "objective-drifting": _objective_specs,
         "memory-poisoning": _memory_specs,
     }
-    return builders[task](scale, run_tag)
+    return builders[task](scale, run_tag, auxiliary_base_url)

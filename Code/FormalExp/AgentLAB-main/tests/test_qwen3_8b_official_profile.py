@@ -67,6 +67,13 @@ class OfficialProfileTests(unittest.TestCase):
         self.assertEqual(COMMON_ENV["HF_HUB_OFFLINE"], "1")
         self.assertEqual(COMMON_ENV["TRANSFORMERS_OFFLINE"], "1")
 
+    def test_runtime_profile_accepts_configured_gpt51_gateway(self):
+        gateway = "https://gateway.example/v1"
+        command = build_run_specs(
+            "tool-chaining", "full", auxiliary_base_url=gateway,
+        )[0].command
+        self.assertEqual(option_value(command, "--aux_base_url"), gateway)
+
     def test_intent_services_fit_the_remote_24gb_gpu_via_cpu_offload(self):
         victim = _service_command("victim-for-intent")
         attacker = _service_command("intent-attacker")

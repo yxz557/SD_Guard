@@ -7,6 +7,10 @@ Qwen non-thinking 采样参数、Hugging Face 离线设置和各角色模型均�
 Code/FormalExp/AgentLAB-main/qwen3_8b_official_profile.py
 ```
 
+GPT-5.1/GPT-5.2 请求通过现有 ChatAnywhere OpenAI-compatible endpoint
+`https://api.chatanywhere.tech/v1` 转发。“官方式”指 AgentLAB 的模型角色与模型 ID，
+不表示密钥或请求入口来自 OpenAI 官方。
+
 不再为每次实验重复设置 `SD_ROOT`、`AL_ROOT`、`RUN_ROOT`、`QWEN_MODEL`、
 `HF_HUB_OFFLINE` 或 `TRANSFORMERS_OFFLINE`。
 
@@ -33,7 +37,7 @@ nano config/local_secrets.env
 chmod 600 config/local_secrets.env
 ```
 
-文件中只需填真实的：
+文件中只需填真实的 ChatAnywhere key：
 
 ```text
 OPENAI_API_KEY=...
