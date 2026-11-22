@@ -1,0 +1,448 @@
+{
+  "study": "sdsafe-lowcost-authorization-v5-depth",
+  "phase": "depth stage complete",
+  "status": "stage_complete",
+  "updated": "2026-11-14T07:03:36+0800",
+  "candidate": null,
+  "blocks": [
+    16,
+    24
+  ],
+  "backend": "monolithic",
+  "coverage": {
+    "train": {
+      "episodes": 8229,
+      "rows": 114799,
+      "tokens": 122566048,
+      "gpu_seconds_total": 10223.1,
+      "by_scope": {
+        "cot": {
+          "episodes": 2558,
+          "rows": 32973,
+          "tokens": 52014842
+        },
+        "ctx40k": {
+          "episodes": 2539,
+          "rows": 33086,
+          "tokens": 13710801
+        },
+        "nothink": {
+          "episodes": 2328,
+          "rows": 32743,
+          "tokens": 51576635
+        },
+        "agentlab": {
+          "episodes": 804,
+          "rows": 15997,
+          "tokens": 5263770
+        }
+      },
+      "last_run": {
+        "split": "train",
+        "universe_episodes": 8229,
+        "captured_episodes": 8229,
+        "this_run_episodes": 4,
+        "ct_rows": 51,
+        "tokens": 84048,
+        "gpu_seconds": 6.69,
+        "wall_seconds": 8.82,
+        "tokens_per_second_gpu": 12565.7,
+        "peak_cuda_bytes": 11297881088,
+        "blocks": [
+          16,
+          24
+        ],
+        "backend": "monolithic",
+        "sync": [
+          {
+            "rc": 0,
+            "at": "05:20:42",
+            "final": true
+          }
+        ],
+        "rows_bytes_note": "block16+block24 stored as bf16 uint16; 8192 B per row per block"
+      },
+      "backend": "monolithic",
+      "blocks_executed": 24,
+      "capture_blocks": [
+        16,
+        24
+      ],
+      "weights_allocated_bytes": 10514670592
+    },
+    "dev": {
+      "episodes": 2028,
+      "rows": 25003,
+      "tokens": 26841965,
+      "gpu_seconds_total": 2196.74,
+      "by_scope": {
+        "cot": {
+          "episodes": 675,
+          "rows": 8091,
+          "tokens": 11772806
+        },
+        "ctx40k": {
+          "episodes": 697,
+          "rows": 8326,
+          "tokens": 2751509
+        },
+        "nothink": {
+          "episodes": 656,
+          "rows": 8586,
+          "tokens": 12317650
+        }
+      },
+      "last_run": {
+        "split": "dev",
+        "universe_episodes": 2028,
+        "captured_episodes": 2028,
+        "this_run_episodes": 2028,
+        "ct_rows": 25003,
+        "tokens": 26841965,
+        "gpu_seconds": 2196.74,
+        "wall_seconds": 2203.61,
+        "tokens_per_second_gpu": 12219.0,
+        "peak_cuda_bytes": 13322025984,
+        "blocks": [
+          16,
+          24
+        ],
+        "backend": "monolithic",
+        "sync": [
+          {
+            "rc": 0,
+            "at": "05:35:23"
+          },
+          {
+            "rc": 0,
+            "at": "05:42:35"
+          },
+          {
+            "rc": 0,
+            "at": "05:49:52"
+          },
+          {
+            "rc": 0,
+            "at": "05:57:28"
+          },
+          {
+            "rc": 0,
+            "at": "05:57:58"
+          },
+          {
+            "rc": 0,
+            "at": "05:58:00",
+            "final": true
+          }
+        ],
+        "rows_bytes_note": "block16+block24 stored as bf16 uint16; 8192 B per row per block"
+      },
+      "backend": "monolithic",
+      "blocks_executed": 24,
+      "capture_blocks": [
+        16,
+        24
+      ],
+      "weights_allocated_bytes": 10514670592
+    }
+  },
+  "peak_memory_observed": {
+    "peak_gib": 13.58,
+    "source_log": "capture_train.log"
+  },
+  "best_variant": "K:ho",
+  "best_metrics": {
+    "tp": 388,
+    "fp": 80,
+    "fn": 26,
+    "tn": 1534,
+    "auc": 0.9788939173535909,
+    "threshold": -2.025445858637492
+  },
+  "baseline_canonical": {
+    "episodes": 2028,
+    "positives": 414,
+    "tp": 393,
+    "fp": 78,
+    "fn": 21,
+    "tn": 1536,
+    "fnr": 0.050724637681159424,
+    "fpr": 0.048327137546468404,
+    "auc": 0.9811267951319673,
+    "threshold": -0.6190447409947714,
+    "rule": "threshold stored in the accepted baseline_scores_v2.npz (frozen artifact value)",
+    "threshold_source": "baseline_scores_v2.npz['threshold']",
+    "note": "21 FN / 78 FP; the accepted operating point"
+  },
+  "progress_bar_fn_le_14": false,
+  "strong_fn_le_8": false,
+  "validation": {
+    "capture_ok": true,
+    "formal_passed": true,
+    "n_formal_checks": 24,
+    "mutations_all_detected": true,
+    "mutations_missing": [],
+    "forged_metric_detected": true,
+    "clean_report_ok": true
+  },
+  "cost": {
+    "depth_rep0": {
+      "increment_host_p95_ms": 0.1061292365193367,
+      "increment_dev_p95_ms": 0.0009931623935699324
+    },
+    "depth_rep1": {
+      "increment_host_p95_ms": 0.09425841271877289,
+      "increment_dev_p95_ms": -0.005484186112880707
+    },
+    "depth_rep2": {
+      "increment_host_p95_ms": 0.0899534672498703,
+      "increment_dev_p95_ms": 5.960464477594574e-06
+    }
+  },
+  "sync_readback": {
+    "batches": [
+      {
+        "file": "batch_capture_dev_20261114T052835.result.json",
+        "new_files": 400,
+        "bytes": 89240700,
+        "verified": true,
+        "transfer_seconds": 7.4
+      },
+      {
+        "file": "batch_capture_dev_20261114T053523.result.json",
+        "new_files": 400,
+        "bytes": 81338171,
+        "verified": true,
+        "transfer_seconds": 6.7
+      },
+      {
+        "file": "batch_capture_dev_20261114T054235.result.json",
+        "new_files": 400,
+        "bytes": 83613149,
+        "verified": true,
+        "transfer_seconds": 6.9
+      },
+      {
+        "file": "batch_capture_dev_20261114T054953.result.json",
+        "new_files": 400,
+        "bytes": 76717480,
+        "verified": true,
+        "transfer_seconds": 6.4
+      },
+      {
+        "file": "batch_capture_dev_20261114T055728.result.json",
+        "new_files": 400,
+        "bytes": 87380332,
+        "verified": true,
+        "transfer_seconds": 7.3
+      },
+      {
+        "file": "batch_capture_dev_20261114T055759.result.json",
+        "new_files": 28,
+        "bytes": 5603123,
+        "verified": true,
+        "transfer_seconds": 0.4
+      },
+      {
+        "file": "batch_capture_dev_20261114T060006.result.json",
+        "new_files": 0,
+        "bytes": null,
+        "verified": true,
+        "transfer_seconds": null
+      },
+      {
+        "file": "batch_capture_train_20261114T023418.result.json",
+        "new_files": 583,
+        "bytes": 127436956,
+        "verified": true,
+        "transfer_seconds": 16.2
+      },
+      {
+        "file": "batch_capture_train_20261114T023900.result.json",
+        "new_files": 219,
+        "bytes": 52775766,
+        "verified": true,
+        "transfer_seconds": 53.3
+      },
+      {
+        "file": "batch_capture_train_20261114T024741.result.json",
+        "new_files": 400,
+        "bytes": 92036187,
+        "verified": true,
+        "transfer_seconds": 153.6
+      },
+      {
+        "file": "batch_capture_train_20261114T025139.result.json",
+        "new_files": 167,
+        "bytes": 38540648,
+        "verified": true,
+        "transfer_seconds": 80.7
+      },
+      {
+        "file": "batch_capture_train_20261114T025708.result.json",
+        "new_files": 233,
+        "bytes": 54850205,
+        "verified": true,
+        "transfer_seconds": 97.4
+      },
+      {
+        "file": "batch_capture_train_20261114T030635.result.json",
+        "new_files": 400,
+        "bytes": 84094727,
+        "verified": true,
+        "transfer_seconds": 125.5
+      },
+      {
+        "file": "batch_capture_train_20261114T031508.result.json",
+        "new_files": 400,
+        "bytes": 86012134,
+        "verified": true,
+        "transfer_seconds": 143.5
+      },
+      {
+        "file": "batch_capture_train_20261114T032352.result.json",
+        "new_files": 400,
+        "bytes": 94361110,
+        "verified": true,
+        "transfer_seconds": 211.9
+      },
+      {
+        "file": "batch_capture_train_20261114T033233.result.json",
+        "new_files": 400,
+        "bytes": 96377840,
+        "verified": true,
+        "transfer_seconds": 53.6
+      },
+      {
+        "file": "batch_capture_train_20261114T034102.result.json",
+        "new_files": 400,
+        "bytes": 98264903,
+        "verified": true,
+        "transfer_seconds": 46.9
+      },
+      {
+        "file": "batch_capture_train_20261114T034831.result.json",
+        "new_files": 400,
+        "bytes": 92539176,
+        "verified": true,
+        "transfer_seconds": 20.8
+      },
+      {
+        "file": "batch_capture_train_20261114T035623.result.json",
+        "new_files": 400,
+        "bytes": 97902649,
+        "verified": true,
+        "transfer_seconds": 24.3
+      },
+      {
+        "file": "batch_capture_train_20261114T040411.result.json",
+        "new_files": 400,
+        "bytes": 94221247,
+        "verified": true,
+        "transfer_seconds": 7.9
+      },
+      {
+        "file": "batch_capture_train_20261114T041228.result.json",
+        "new_files": 400,
+        "bytes": 96602822,
+        "verified": true,
+        "transfer_seconds": 8.1
+      },
+      {
+        "file": "batch_capture_train_20261114T041919.result.json",
+        "new_files": 400,
+        "bytes": 95096651,
+        "verified": true,
+        "transfer_seconds": 8.0
+      },
+      {
+        "file": "batch_capture_train_20261114T042702.result.json",
+        "new_files": 400,
+        "bytes": 94637493,
+        "verified": true,
+        "transfer_seconds": 8.0
+      },
+      {
+        "file": "batch_capture_train_20261114T043630.result.json",
+        "new_files": 400,
+        "bytes": 98445847,
+        "verified": true,
+        "transfer_seconds": 8.2
+      },
+      {
+        "file": "batch_capture_train_20261114T044502.result.json",
+        "new_files": 400,
+        "bytes": 101055891,
+        "verified": true,
+        "transfer_seconds": 8.4
+      },
+      {
+        "file": "batch_capture_train_20261114T045258.result.json",
+        "new_files": 400,
+        "bytes": 97070529,
+        "verified": true,
+        "transfer_seconds": 8.1
+      },
+      {
+        "file": "batch_capture_train_20261114T050109.result.json",
+        "new_files": 400,
+        "bytes": 93714280,
+        "verified": true,
+        "transfer_seconds": 7.8
+      },
+      {
+        "file": "batch_capture_train_20261114T050825.result.json",
+        "new_files": 400,
+        "bytes": 97933990,
+        "verified": true,
+        "transfer_seconds": 8.5
+      },
+      {
+        "file": "batch_capture_train_20261114T051336.result.json",
+        "new_files": 216,
+        "bytes": 53827018,
+        "verified": true,
+        "transfer_seconds": 4.4
+      },
+      {
+        "file": "batch_capture_train_20261114T051958.result.json",
+        "new_files": 9,
+        "bytes": 1733334,
+        "verified": true,
+        "transfer_seconds": 0.2
+      },
+      {
+        "file": "batch_capture_train_20261114T052041.result.json",
+        "new_files": 4,
+        "bytes": 864493,
+        "verified": true,
+        "transfer_seconds": 0.2
+      },
+      {
+        "file": "batch_capture_train_20261114T052048.result.json",
+        "new_files": 0,
+        "bytes": null,
+        "verified": true,
+        "transfer_seconds": null
+      },
+      {
+        "file": "batch_final_artifacts_20261114T065700.result.json",
+        "new_files": 189,
+        "bytes": 325598140,
+        "verified": true,
+        "transfer_seconds": 27.4
+      },
+      {
+        "file": "batch_final_docs_20261114T070244.result.json",
+        "new_files": 10448,
+        "bytes": 2689628021,
+        "verified": true,
+        "transfer_seconds": 0.8
+      }
+    ],
+    "verified": 34,
+    "failed": 0
+  },
+  "active_gpu_jobs": [],
+  "note": "final candidate acceptance is the parent's decision; nothing was silently re-budgeted"
+}

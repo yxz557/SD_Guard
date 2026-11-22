@@ -1,0 +1,70 @@
+{
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/data_audit.json": {
+  "bytes": 8608,
+  "sha256": "618079d0181ab501daba7ede2431aec0fab8a517e089beb65e7c7b0067b02c35"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/dataset_spec.json": {
+  "bytes": 2974,
+  "sha256": "a46accd9c05390937ecfdd3fb5cdbd2bacaf4be8ad27604cf9ebdc4814ebd7fe"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/episodes_dev.jsonl": {
+  "bytes": 1938825,
+  "sha256": "2550f95821acb6bde9a2447f91b15d2308e3cd53027db814e7a14f8575dfa9ac"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/episodes_train.jsonl": {
+  "bytes": 7586859,
+  "sha256": "6ad493660819610e881a113b354582216664e9615efed0b7862406a3540467ea"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/features_bf16.bin": {
+  "bytes": 1590984704,
+  "sha256": "af86fa7ab9af0c4645dc25fb6a4a14b9ec0540de7236c8fa0ac2cb222d0bc5d2"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/features_bf16.sha256": {
+  "bytes": 65,
+  "sha256": "7f0586a6862630ebeedff3bb0ab949fe0229f591ca0d073bbe6d2df91bdf9128"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/groups.jsonl": {
+  "bytes": 777969,
+  "sha256": "87b045d45591f5842ca7f004413183be1d29c85c2087600e33e2f828243ae25f"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/labels_dev.npz": {
+  "bytes": 172042,
+  "sha256": "dadbd70fcbe8b190121914546f967521636f69a91b5b6034d07e2931c6448c28"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/labels_train.npz": {
+  "bytes": 2123962,
+  "sha256": "04be9e62ea5d6acc11236b4f1faf0a47687efd3e966fa4291d9ac404f622b41c"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/manifest.json": {
+  "bytes": 17684,
+  "sha256": "6cfe610c0b6ef22857da6c04c07a1ca156dc34976cd30e739f118c54efc63b92"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/rows_dev.jsonl": {
+  "bytes": 93570620,
+  "sha256": "8bdc5b6351612fdb36334cb7a8190cc9ff38a44b87e9fbd3c52edda142b36402"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/rows_train.jsonl": {
+  "bytes": 333288895,
+  "sha256": "1b68abc6f0f55b06e0d10d7a9d0af292bd1862d5027c87e32735e5f8c2084b3a"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/scalers/fit_scaler.npz": {
+  "bytes": 33770,
+  "sha256": "03b2266831e40a815a2ab502cf4e232fc84e48caa2adb2dcf85cbf5ea90129fa"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/scalers/full_train_scaler.npz": {
+  "bytes": 33770,
+  "sha256": "5a56557d0ad0c82288c1b96be226c2b793e57d93f0ac1725c4353af673fb2aef"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/scalers/scaler_audit.json": {
+  "bytes": 2276,
+  "sha256": "34fffc36f5da448afec120ec0fb8ec00f8fc5fed0a2e6bf5dc0886466fb9156d"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/source_ledger.json": {
+  "bytes": 2614,
+  "sha256": "1812854a62b76a6dc62a6db04d09a7e547faf81c06066f909ca7230abec4da08"
+ },
+ "artifacts/fine_sequence_explore_v1/data/sequence_v1/splits.json": {
+  "bytes": 1224037,
+  "sha256": "8fa770a74573987d3eb71c26e8008187dbd6ffeece533f95daff2a92dcb6b89f"
+ }
+}

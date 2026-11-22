@@ -1,0 +1,485 @@
+{
+ "stage": "runtime-r4",
+ "created_utc": "2026-11-14",
+ "source": {
+  "repo": "/root/sdsafe-compute/v6-param",
+  "git_head": "12a753bf43dca175c9b94e76ac45820c4170e1ce",
+  "base_commit": "aa2c604",
+  "tags": [
+   "runtime-r4-base",
+   "runtime-r4-code"
+  ],
+  "diffstat_base_to_head": [
+   "RUNTIME_R4_REPORT.md        | 231 +++++++++++++++++++++++++++",
+   " STATUS.md                   |  49 ++++++",
+   " scripts/accuracy_r4.py      |  66 ++++++++",
+   " scripts/bench_r4.py         | 376 ++++++++++++++++++++++++++++++++++++++++++++",
+   " scripts/manifest_r4.py      |  62 ++++++++",
+   " scripts/parity_r4.py        | 255 ++++++++++++++++++++++++++++++",
+   " scripts/pilot_r4.py         | 103 ++++++++++++",
+   " scripts/summarize_r4.py     |  89 +++++++++++",
+   " src/sdsafe_v6/runtime_r4.py | 277 ++++++++++++++++++++++++++++++++",
+   " src/sdsafe_v6/view.py       |   7 +-",
+   " tests/test_runtime_r4.py    | 204 ++++++++++++++++++++++++",
+   " 11 files changed, 1718 insertions(+), 1 deletion(-)"
+  ]
+ },
+ "annotation": {
+  "new_annotation_tasks": 0,
+  "new_api_requests": 0,
+  "new_labels": 0,
+  "teacher_cache_sha256": {
+   "aux_calls_v2.jsonl": "089e488971e267c7fc1ed0078c32b172b50c241c13620eee7728e1a5dae60f2b",
+   "aux2_calls.jsonl": "9f6f4d417a31929dcd888838a8bbbe052dc6584298d8f698cde4ad834716a20c",
+   "pilot400_calls.jsonl": "ef11c792008e53fb8bb204e8e2fa1bfc417416d56308f7199d64c79dba24b3ef"
+  },
+  "frozen_manifest_match": true,
+  "test_material_read": false
+ },
+ "environment": {
+  "python": "/root/vllm_env_backup/bin/python",
+  "torch": "2.14.0+cu130",
+  "gpu": "RTX 4090 24GiB",
+  "PYTHONDONTWRITEBYTECODE": "1",
+  "threads": 2
+ },
+ "changes": {
+  "backend": "static-shape CUDA graph over the same 3 frozen S2 students; compact real-index packing with dynamic offsets and zero-row padding (0 fallbacks / 25003 events)",
+  "view": "runtime-r4 mechanical no-copy _true_starts; full parity 0 bad rows",
+  "timing_scope": {
+   "A": "tokens-only full path",
+   "R": "rawtext: all parse/JSON/role/source charged",
+   "T": "typed detector; adapter measured+charged in T integrated",
+   "r3_defect": "mode B parsed the prompt outside the timer; no longer used"
+  }
+ },
+ "pilot": {
+  "episodes": 8,
+  "scored_feats": 199,
+  "components_ms": {
+   "decode": {
+    "n": 68,
+    "p50": 0.21148845553398132,
+    "p95": 1.751168631017208
+   },
+   "parse": {
+    "n": 34,
+    "p50": 0.11539645493030548,
+    "p95": 0.4883352667093276
+   },
+   "event": {
+    "n": 199,
+    "p50": 0.3618411719799042,
+    "p95": 0.7120329886674869
+   },
+   "model": {
+    "n": 0,
+    "p50": NaN,
+    "p95": NaN
+   }
+  },
+  "gpu_merged_forward_ms": {
+   "p50": 0.45596063137054443,
+   "p95": 0.4839453846216202
+  },
+  "cpu_1thread_forward_ms": {
+   "p50": 0.4209578037261963,
+   "p95": 1.205587014555931
+  },
+  "cpu_2thread_forward_ms": {
+   "p50": 0.38355961441993713,
+   "p95": 0.4139799624681473
+  },
+  "cpu_vs_gpu_maxdiff": 2.288818359375e-05,
+  "note": "stratified whole-episode pilot (cot/ctx40k/nothink + 2 longest); used only to pick the backend, no threshold/model change"
+ },
+ "parity": {
+  "events": 25003,
+  "episodes": 2028,
+  "modes": {
+   "R": {
+    "events": 25003,
+    "bad_rows": 0,
+    "bad_examples": {},
+    "bag_bad": 0,
+    "dense_maxdiff": 0.0,
+    "logit_maxdiff": 3.0517578125e-05,
+    "per_seed_ep_maxdiff": 5.7220458984375e-06,
+    "ensemble_maxdiff": 5.7220458984375e-06,
+    "fused_maxdiff": 2.841287660704239e-07,
+    "s2_fn": 13,
+    "s2_fp": 79,
+    "fusion_fn": 12,
+    "fusion_fp": 79,
+    "graph_fallback": 0,
+    "cap_counts": {
+     "768": 7735,
+     "1536": 12114,
+     "3072": 4968,
+     "4096": 186
+    },
+    "reference_s2_fn": 13,
+    "reference_s2_fp": 80,
+    "reference_fusion_fn": 12,
+    "reference_fusion_fp": 80
+   },
+   "T": {
+    "events": 25003,
+    "bad_rows": 0,
+    "bad_examples": {},
+    "bag_bad": 0,
+    "dense_maxdiff": 0.0,
+    "logit_maxdiff": 3.0517578125e-05,
+    "per_seed_ep_maxdiff": 5.7220458984375e-06,
+    "ensemble_maxdiff": 5.7220458984375e-06,
+    "fused_maxdiff": 2.841287660704239e-07,
+    "s2_fn": 13,
+    "s2_fp": 79,
+    "fusion_fn": 12,
+    "fusion_fp": 79,
+    "graph_fallback": 0,
+    "cap_counts": {
+     "768": 15470,
+     "1536": 24228,
+     "3072": 9936,
+     "4096": 372
+    },
+    "reference_s2_fn": 13,
+    "reference_s2_fp": 80,
+    "reference_fusion_fn": 12,
+    "reference_fusion_fp": 80
+   }
+  },
+  "maxdiff": {
+   "ct_logits_float32": 3.0517578125e-05,
+   "per_seed_episode_max": 5.7220458984375e-06,
+   "ensemble_float32": 5.7220458984375e-06,
+   "fused_float64": 2.841287660704239e-07
+  },
+  "repeats": "3 identical full runs"
+ },
+ "accuracy": {
+  "split": "common DEV (exploratory reuse of the frozen corrected-r3 menu)",
+  "events": 25003,
+  "episodes": 2028,
+  "positives": 414,
+  "negatives": 1614,
+  "thresholds": {
+   "fusion_tau": 0.6289290373189838,
+   "fusion_tau_hex": "0x1.4202fc9d94608p-1",
+   "s2_threshold": -0.7427853941917419,
+   "s2_threshold_hex": "-0x1.7c4e5e0000000p-1",
+   "rule": ">="
+  },
+  "r3_reference": {
+   "baseline_fn": 21,
+   "baseline_fp": 78,
+   "s2_fn": 13,
+   "s2_fp": 80,
+   "fusion_fn": 12,
+   "fusion_fp": 80,
+   "s2_auc": 0.9876218953720166,
+   "fusion_auc": 0.9903471436524612
+  },
+  "r4": {
+   "s2_fn": 13,
+   "s2_fp": 79,
+   "s2_auc": 0.9876218953720166,
+   "s2_dtype": "float32",
+   "fusion_fn": 12,
+   "fusion_fp": 79,
+   "fusion_auc": 0.9903471436524612,
+   "fusion_dtype": "float64"
+  },
+  "parity_maxdiff": {
+   "ct_logits_float32": 3.0517578125e-05,
+   "per_seed_episode_max": 5.7220458984375e-06,
+   "ensemble_float32": 5.7220458984375e-06,
+   "fused_float64": 2.841287660704239e-07
+  },
+  "boundary_tie": {
+   "episode_id": "nothink_ctx40k::agentlab-47443fea3548818726d3e2187fc2607e",
+   "label": 0,
+   "r3_fused": 0.6289290373189838,
+   "r3_fused_hex": "0x1.4202fc9d94608p-1",
+   "r4_fused": 0.6289290136415866,
+   "r4_fused_hex": "0x1.4202fbd2313aep-1",
+   "margin_r4_minus_tau": -2.367739715403161e-08,
+   "effect": "the reference score sits exactly on tau (>= counts it as FP); the graph backend moves it 2.4e-8 below tau, so the fixed-tau FP count is 79 instead of 80. No threshold, epsilon or rounding was changed."
+  },
+  "stability": "all 9 sequential cost passes report fusion 12/79 and S2 13/79; parity was run three times with identical results"
+ },
+ "cost": {
+  "processes": 3,
+  "repeats_per_process": 3,
+  "passes": 9,
+  "batch": 1,
+  "events_per_pass": 25003,
+  "summary_path": "artifacts/corrected-r3/runtime-r4/cost_r4_summary.json",
+  "A_gpu": {
+   "detector_p50_ms_median": 0.4563182592391968,
+   "detector_p95_ms_median": 1.668784022331235,
+   "detector_p95_ms_worst": 1.735756173729896,
+   "detector_p99_ms_median": 2.809850051999092,
+   "detector_int_p50_ms_median": 0.4563182592391968,
+   "detector_int_p95_ms_median": 1.668784022331235,
+   "detector_int_p95_ms_worst": 1.735756173729896,
+   "full_p95_ms_median": 1.668784022331235,
+   "full_p95_ms_worst": 1.735756173729896,
+   "wall_throughput_per_s_median": 1185.0093002887136,
+   "episode_final_p95_ms_median": 0.11593494564294814,
+   "s2_fn": [
+    13
+   ],
+   "s2_fp": [
+    79
+   ],
+   "fusion_fn": [
+    12
+   ],
+   "fusion_fp": [
+    79
+   ],
+   "stud_maxdiff_vs_saved_max": 5.7220458984375e-06,
+   "fused_maxdiff_vs_saved_max": 2.841287660704239e-07
+  },
+  "A_sync": {
+   "detector_p50_ms_median": 0.5391240119934082,
+   "detector_p95_ms_median": 1.7237994819879519,
+   "detector_p95_ms_worst": 1.7975531518459305,
+   "detector_p99_ms_median": 2.7987531572580333,
+   "detector_int_p50_ms_median": 0.5391240119934082,
+   "detector_int_p95_ms_median": 1.7237994819879519,
+   "detector_int_p95_ms_worst": 1.7975531518459305,
+   "full_p95_ms_median": 1.7237994819879519,
+   "full_p95_ms_worst": 1.7975531518459305,
+   "wall_throughput_per_s_median": 1059.2900550566565,
+   "episode_final_p95_ms_median": null,
+   "s2_fn": [
+    13
+   ],
+   "s2_fp": [
+    79
+   ],
+   "fusion_fn": [
+    12
+   ],
+   "fusion_fp": [
+    79
+   ],
+   "stud_maxdiff_vs_saved_max": 5.7220458984375e-06,
+   "fused_maxdiff_vs_saved_max": 2.841287660704239e-07
+  },
+  "R_gpu": {
+   "detector_p50_ms_median": 0.4161857068538666,
+   "detector_p95_ms_median": 1.0369665920734403,
+   "detector_p95_ms_worst": 1.0618988424539562,
+   "detector_p99_ms_median": 1.6738831996917702,
+   "detector_int_p50_ms_median": 0.4161857068538666,
+   "detector_int_p95_ms_median": 1.0369665920734403,
+   "detector_int_p95_ms_worst": 1.0618988424539562,
+   "full_p95_ms_median": 2.2827483713626813,
+   "full_p95_ms_worst": 2.3941785097122184,
+   "wall_throughput_per_s_median": 990.9875864753773,
+   "episode_final_p95_ms_median": 0.11653825640678406,
+   "s2_fn": [
+    13
+   ],
+   "s2_fp": [
+    79
+   ],
+   "fusion_fn": [
+    12
+   ],
+   "fusion_fp": [
+    79
+   ],
+   "stud_maxdiff_vs_saved_max": 5.7220458984375e-06,
+   "fused_maxdiff_vs_saved_max": 2.841287660704239e-07
+  },
+  "R_sync": {
+   "detector_p50_ms_median": 0.49034878611564636,
+   "detector_p95_ms_median": 1.107201352715492,
+   "detector_p95_ms_worst": 1.1291906237602232,
+   "detector_p99_ms_median": 1.745775565505026,
+   "detector_int_p50_ms_median": 0.49034878611564636,
+   "detector_int_p95_ms_median": 1.107201352715492,
+   "detector_int_p95_ms_worst": 1.1291906237602232,
+   "full_p95_ms_median": 2.367933839559554,
+   "full_p95_ms_worst": 2.4495370686054225,
+   "wall_throughput_per_s_median": 906.1556314638418,
+   "episode_final_p95_ms_median": null,
+   "s2_fn": [
+    13
+   ],
+   "s2_fp": [
+    79
+   ],
+   "fusion_fn": [
+    12
+   ],
+   "fusion_fp": [
+    79
+   ],
+   "stud_maxdiff_vs_saved_max": 5.7220458984375e-06,
+   "fused_maxdiff_vs_saved_max": 2.841287660704239e-07
+  },
+  "T_gpu_pure": {
+   "detector_p50_ms_median": 0.3908798098564148,
+   "detector_p95_ms_median": 0.915691256523132,
+   "detector_p95_ms_worst": 0.939510017633438,
+   "detector_p99_ms_median": 1.5318404138088222,
+   "detector_int_p50_ms_median": 0.4142969846725464,
+   "detector_int_p95_ms_median": 1.0389916598796844,
+   "detector_int_p95_ms_worst": 1.067830622196197,
+   "full_p95_ms_median": 2.2894650697708117,
+   "full_p95_ms_worst": 2.369228377938269,
+   "wall_throughput_per_s_median": 1008.5590731156924,
+   "episode_final_p95_ms_median": 0.11542309075593948,
+   "s2_fn": [
+    13
+   ],
+   "s2_fp": [
+    79
+   ],
+   "fusion_fn": [
+    12
+   ],
+   "fusion_fp": [
+    79
+   ],
+   "stud_maxdiff_vs_saved_max": 5.7220458984375e-06,
+   "fused_maxdiff_vs_saved_max": 2.841287660704239e-07
+  },
+  "T_gpu_integrated": {
+   "detector_p50_ms_median": 0.3908798098564148,
+   "detector_p95_ms_median": 1.0389916598796844,
+   "detector_p95_ms_worst": 1.067830622196197,
+   "detector_p99_ms_median": 1.5318404138088222,
+   "detector_int_p50_ms_median": 0.4142969846725464,
+   "detector_int_p95_ms_median": 1.0389916598796844,
+   "detector_int_p95_ms_worst": 1.067830622196197,
+   "full_p95_ms_median": 2.2894650697708117,
+   "full_p95_ms_worst": 2.369228377938269,
+   "wall_throughput_per_s_median": 1008.5590731156924,
+   "episode_final_p95_ms_median": 0.11542309075593948,
+   "s2_fn": [
+    13
+   ],
+   "s2_fp": [
+    79
+   ],
+   "fusion_fn": [
+    12
+   ],
+   "fusion_fp": [
+    79
+   ],
+   "stud_maxdiff_vs_saved_max": 5.7220458984375e-06,
+   "fused_maxdiff_vs_saved_max": 2.841287660704239e-07
+  },
+  "T_sync_pure": {
+   "detector_p50_ms_median": 0.4643276333808899,
+   "detector_p95_ms_median": 0.9956426918506615,
+   "detector_p95_ms_worst": 1.0042686015367484,
+   "detector_p99_ms_median": 1.628124862909317,
+   "detector_int_p50_ms_median": 0.49084797501564026,
+   "detector_int_p95_ms_median": 1.12258493900299,
+   "detector_int_p95_ms_worst": 1.131749153137206,
+   "full_p95_ms_median": 2.37688161432743,
+   "full_p95_ms_worst": 2.4444516748189917,
+   "wall_throughput_per_s_median": 900.3756621192978,
+   "episode_final_p95_ms_median": null,
+   "s2_fn": [
+    13
+   ],
+   "s2_fp": [
+    79
+   ],
+   "fusion_fn": [
+    12
+   ],
+   "fusion_fp": [
+    79
+   ],
+   "stud_maxdiff_vs_saved_max": 5.7220458984375e-06,
+   "fused_maxdiff_vs_saved_max": 2.841287660704239e-07
+  },
+  "T_sync_integrated": {
+   "detector_p50_ms_median": 0.4643276333808899,
+   "detector_p95_ms_median": 1.12258493900299,
+   "detector_p95_ms_worst": 1.131749153137206,
+   "detector_p99_ms_median": 1.628124862909317,
+   "detector_int_p50_ms_median": 0.49084797501564026,
+   "detector_int_p95_ms_median": 1.12258493900299,
+   "detector_int_p95_ms_worst": 1.131749153137206,
+   "full_p95_ms_median": 2.37688161432743,
+   "full_p95_ms_worst": 2.4444516748189917,
+   "wall_throughput_per_s_median": 900.3756621192978,
+   "episode_final_p95_ms_median": null,
+   "s2_fn": [
+    13
+   ],
+   "s2_fp": [
+    79
+   ],
+   "fusion_fn": [
+    12
+   ],
+   "fusion_fp": [
+    79
+   ],
+   "stud_maxdiff_vs_saved_max": 5.7220458984375e-06,
+   "fused_maxdiff_vs_saved_max": 2.841287660704239e-07
+  },
+  "gate": {
+   "definition": "full detector-added p95 on the honest integrable path: R detector (parse/JSON/role/source all charged) or T detector + measured source-adapter boundary recovery; strict = worst of 9 passes <= 1.0 ms",
+   "A_tokens_only": "reported, not required to meet 1 ms",
+   "T_pure_with_adapter_excluded": "shown only as an upper bound; the prepared source has no separate controller message list, so pure T is not claimed as an actual integration",
+   "borderline": "R and T integrated are ~1.03-1.06 ms, i.e. 3-6% above the 1 ms bar; T pure is <= 0.94 ms but has no direct typed caller in this source"
+  },
+  "resources": {
+   "gpu_peak_alloc_bytes": 94070784,
+   "gpu_reserved_bytes": 167772160,
+   "cpu_maxrss_kb": 2128560,
+   "gpu_after_mib": 0
+  }
+ },
+ "gate": {
+  "cost_passed": false,
+  "reason": "honest integrable p95 1.037-1.068 ms, 3.7-6.8% above 1 ms; T pure 0.916/0.940 ms has no direct typed caller in this source and is not claimed",
+  "accuracy_verified": true,
+  "scope_valid": true,
+  "fn": 12,
+  "fp": 79
+ },
+ "validation": {
+  "tests": "40/40 OK (32 inherited + 8 new)",
+  "test_log": "logs/tests_r4.log",
+  "frozen_sha_mismatches": [],
+  "frozen_sha_path": "artifacts/corrected-r3/runtime-r4/frozen_sha_r4.json",
+  "manifest": "artifacts/corrected-r3/runtime-r4/MANIFEST_R4.json"
+ },
+ "cpu_authoritative_path": "/root/autodl-tmp/sdsafe-lowcost-authorization-v6-param/runtime-r4",
+ "cpu_sync": {
+  "status": "verified",
+  "cpu_path": "/root/autodl-tmp/sdsafe-lowcost-authorization-v6-param/runtime-r4",
+  "bundle_tar_sha256": "5330630e79d0664a69d087c513ade8a6ae65b3583046b86e4068497ccf33ec4a",
+  "manifest_sha256": "8ce56c10892415f03a9b112a434032ff428c30e6e0a1ab4effe0d464959d567a",
+  "manifest_files": 80,
+  "verified_ok": 80,
+  "verified_failed": 0,
+  "readback_key_sha256": {
+   "SHA256SUMS": "8ce56c10892415f03a9b112a434032ff428c30e6e0a1ab4effe0d464959d567a",
+   "artifacts/parity_r4.json": "7781c7478299dc250e9d75b8e0df5cf8c8081895ed9577256a35ee7ae204e606",
+   "artifacts/parity_r4_row_logits.npz": "dd2d32f665ef9952911206e1dc59e0b9b7752368020d2ef1e8509d7fd69959e7",
+   "artifacts/cost_r4_summary.json": "1d80e7c5f037ec8d069ccc439d52e7c46a72cb222a26b52e9b3f818630a3ef97",
+   "artifacts/accuracy_r4.json": "d80620d0d0800649b332c2748d86aedf0d354cbdad6fcb93028aeec8666a579f",
+   "artifacts/frozen_sha_r4.json": "85e126e197b74ee2193271424fccfe98937376e15f3051eb4627ff93b682236f",
+   "reports/HANDOFF_R4.json": "3567c455849b1f648400f0d03e69c615c39c23d0e280dadf5b303286054f689e",
+   "reports/RUNTIME_R4_REPORT.md": "84407aa500b07d07f39bffadd7ecd21bddb20e0c84e952b5589de3cc6634e45e"
+  },
+  "evidence": "CPU_SYNC_R4.json"
+ },
+ "background_jobs_after_run": false
+}

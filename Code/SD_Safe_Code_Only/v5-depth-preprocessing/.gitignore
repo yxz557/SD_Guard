@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+artifacts/capture*/
+artifacts/dataset/
+artifacts/models*/
+artifacts/smoke*/*.log
+prepared/
+*.tmp

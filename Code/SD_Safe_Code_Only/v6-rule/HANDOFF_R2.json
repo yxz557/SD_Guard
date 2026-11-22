@@ -1,0 +1,331 @@
+{
+ "run": "sdsafe-v6-param cache-only-r2 runtime",
+ "status": "completed_with_decision_required",
+ "created_utc": "2026-11-14T19:40:00Z",
+ "source": {
+  "git": "/root/sdsafe-compute/v6-param",
+  "commit": "27a744f5fbf62612c6eb4ef251fe850706221cce",
+  "base_commit": "6edf1ff",
+  "base_tag": "runtime-r2-base",
+  "new_files": [
+   "src/sdsafe_v6/runtime_fast.py",
+   "scripts/parity_runtime.py",
+   "scripts/replay_runtime.py",
+   "scripts/bench_runtime.py",
+   "tests/test_runtime_fast.py",
+   "RUNTIME_R2_REPORT.md"
+  ],
+  "diffstat": "RUNTIME_R2_REPORT.md          | 148 ++++++++\n scripts/bench_runtime.py      | 220 +++++++++++\n scripts/parity_runtime.py     | 129 +++++++\n scripts/replay_runtime.py     | 200 ++++++++++\n src/sdsafe_v6/runtime_fast.py | 847 ++++++++++++++++++++++++++++++++++++++++++\n tests/test_runtime_fast.py    | 165 ++++++++\n 6 files changed, 1709 insertions(+)"
+ },
+ "annotation": {
+  "new_tasks": 0,
+  "new_api_requests": 0,
+  "retries": 0,
+  "health_probes": 0,
+  "second_judge": 0,
+  "label_repairs": 0,
+  "provider_calls": 0,
+  "test_read": false,
+  "training_runs": 0,
+  "threshold_search": 0
+ },
+ "frozen_inputs_sha256": {
+  "ckpt_S2_v3_seed0.pt": "f921bde627d4b6f1b341d7241afc8dd4a5bb55f4e68f3865b73945eb7278aaa5",
+  "ckpt_S2_v3_seed1.pt": "05e959607742f9f0aed845ca7585ecdf22f5647fe3c93febc42caddee908bd4f",
+  "ckpt_S2_v3_seed2.pt": "90a950b6f3c545c9720221d5006d2e66d266d7fe73f4d3f0557226b8ebe05851",
+  "teacher/aux2_calls.jsonl": "9f6f4d417a31929dcd888838a8bbbe052dc6584298d8f698cde4ad834716a20c",
+  "teacher/aux_calls_v2.jsonl": "089e488971e267c7fc1ed0078c32b172b50c241c13620eee7728e1a5dae60f2b",
+  "teacher/pilot400_calls.jsonl": "ef11c792008e53fb8bb204e8e2fa1bfc417416d56308f7199d64c79dba24b3ef",
+  "scaler_v6_v3.npz": "4fd5ff246566a4210b5a7a775a4dc4e340d7a7e152a845ddbf56e2f074559b68",
+  "fusion_frozen_v3.json": "9396319e48714409532ecb37b03aed35d018adfdd5c4a468c6b5ddfd37d0ec88"
+ },
+ "replay_before_optimisation": {
+  "s2": {
+   "fn": 13,
+   "fp": 80,
+   "auc": 0.9891498901519913,
+   "threshold": -0.7444993853569031
+  },
+  "fusion_s2": {
+   "fn": 11,
+   "fp": 80,
+   "auc": 0.9902797981430598,
+   "threshold": 0.6624409698441314
+  },
+  "baseline_f32": {
+   "fn": 21,
+   "fp": 78,
+   "auc": 0.9811267951319673
+  },
+  "source": "saved dev_scores/dev_episode + frozen fusion formula"
+ },
+ "parity": {
+  "events": 24983,
+  "episodes": 2028,
+  "view_feature_mismatches": 0,
+  "checks": [
+   "current kind/segment/text/visible/tool/args",
+   "user_request",
+   "prior role/text/chars/index",
+   "retrieval (order/tie/score)",
+   "value_sources (exact/normalised/offset)",
+   "counts",
+   "prefix_chars",
+   "has_reasoning",
+   "prefix_sha256",
+   "current_sha256",
+   "bags cur/vis/user/src",
+   "dense 32 values bitwise"
+  ],
+  "artifact": "artifacts/runtime-r2/parity_views_final.json",
+  "sha256": "2b2310df550c380d8c3b9f2eb386294cefb6c1bf751124d7d79d3b26ced69023"
+ },
+ "accuracy": {
+  "saved_and_stream_s2_fn": 13,
+  "saved_and_stream_s2_fp": 80,
+  "s2_prediction_changes": 0,
+  "saved_fusion_fn": 11,
+  "saved_fusion_fp": 80,
+  "stream_frozen_tau_fusion_fn": 11,
+  "stream_frozen_tau_fusion_fp": 79,
+  "row_logit_maxdiff_vs_saved": 1.52587890625e-05,
+  "per_seed_episode_maxdiff": 7.62939453125e-06,
+  "ensemble_episode_maxdiff": 5.7220458984375e-06,
+  "fusion_boundary_changes": [
+   {
+    "episode_id": "ctx40k::agentlab-40dd0f4b501622d0c2c1a2b28da929c4",
+    "label": 0,
+    "stream_fused": 0.6624409475899076,
+    "saved_fused": 0.6624409698441314,
+    "frozen_threshold": 0.6624409698441314,
+    "delta_stream_minus_threshold": -2.22542237970913e-08
+   }
+  ],
+  "decision": "authoritative saved fusion = 11/80 at frozen tau; batch-1 stream = 11/79 because the threshold-defining negative rounds 2.23e-8 below tau. No tau/label/threshold changed."
+ },
+ "cost": {
+  "target_p95_ms": 1.0,
+  "met": false,
+  "concurrent_3proc": {
+   "p50_ms_median": 1.1933781206607819,
+   "p95_ms_median": 2.3158278316259353,
+   "p99_ms_median": 3.3451466262340555,
+   "p95_ms_worst_repeat": 2.344827353954315,
+   "throughput_per_s_median": 766.8424727666437,
+   "components_p95_ms_median": {
+    "view_feat": 1.435323059558867,
+    "model": 1.0468609631061552,
+    "fuse": 0.05816593766212462,
+    "skip": 0.01970287412405014
+   },
+   "components_p50_ms_median": {
+    "view_feat": 0.2688169479370117,
+    "model": 0.8474700152873993,
+    "fuse": 0.050749629735946655,
+    "skip": 0.014958903193473816
+   },
+   "slices_process0": {
+    "first_event": {
+     "n": 9004,
+     "p50_ms": 1.4058146625757217,
+     "p95_ms": 2.9665088281035423,
+     "p99_ms": 4.413779750466341
+    },
+    "later_event": {
+     "n": 15979,
+     "p50_ms": 1.122843474149704,
+     "p95_ms": 1.3720035552978516,
+     "p99_ms": 1.5757468342781067
+    },
+    "kind:content_segment": {
+     "n": 17170,
+     "p50_ms": 1.1460762470960617,
+     "p95_ms": 1.5457991510629654,
+     "p99_ms": 2.1548606082797055
+    },
+    "kind:tool_call": {
+     "n": 7813,
+     "p50_ms": 1.3617761433124542,
+     "p95_ms": 2.972583472728729,
+     "p99_ms": 4.1894073784351376
+    },
+    "scope:cot": {
+     "n": 8091,
+     "p50_ms": 1.2064054608345032,
+     "p95_ms": 2.8997771441936493,
+     "p99_ms": 3.8419056683778834
+    },
+    "scope:ctx40k": {
+     "n": 8306,
+     "p50_ms": 1.1818278580904007,
+     "p95_ms": 1.5981467440724373,
+     "p99_ms": 2.2324144840240576
+    },
+    "scope:nothink": {
+     "n": 8586,
+     "p50_ms": 1.1968929320573807,
+     "p95_ms": 2.0758891478180885,
+     "p99_ms": 2.6943517848849274
+    },
+    "len:0-2000": {
+     "n": 1640,
+     "p50_ms": 1.1886432766914368,
+     "p95_ms": 1.4421414583921432,
+     "p99_ms": 1.710984110832213
+    },
+    "len:2000-8000": {
+     "n": 7472,
+     "p50_ms": 1.179918646812439,
+     "p95_ms": 1.6479352489113808,
+     "p99_ms": 1.9750483334064484
+    },
+    "len:8000-20000": {
+     "n": 9872,
+     "p50_ms": 1.1914540082216263,
+     "p95_ms": 2.5030247867107387,
+     "p99_ms": 3.0208853259682624
+    },
+    "len:20000-1000000000": {
+     "n": 5999,
+     "p50_ms": 1.2197867035865784,
+     "p95_ms": 3.0777819454669952,
+     "p99_ms": 5.455177798867164
+    }
+   },
+   "gpu_peak_alloc_bytes": 34838016,
+   "cpu_maxrss_kb": 2070352,
+   "cost_passed_1ms": false
+  },
+  "isolated_1proc": {
+   "p50_ms_median": 0.8218251168727875,
+   "p95_ms_median": 1.9379459321498866,
+   "p99_ms_median": 2.8769632428884506,
+   "p95_ms_worst_repeat": 1.9594866782426819,
+   "throughput_per_s_median": 1020.3123662670124,
+   "components_p95_ms": {
+    "view_feat": 1.34035162627697,
+    "model": 0.5543973296880722,
+    "fuse": 0.05625486373901366,
+    "skip": 0.017059221863746643
+   },
+   "components_p50_ms": {
+    "view_feat": 0.26410073041915894,
+    "model": 0.5066394805908203,
+    "fuse": 0.04938244819641113,
+    "skip": 0.014314427971839905
+   },
+   "slices": {
+    "first_event": {
+     "n": 9004,
+     "p50_ms": 1.0843388736248016,
+     "p95_ms": 2.4613145738840108,
+     "p99_ms": 4.010534957051277
+    },
+    "later_event": {
+     "n": 15979,
+     "p50_ms": 0.7623061537742615,
+     "p95_ms": 0.9772602468729019,
+     "p99_ms": 1.080411821603774
+    },
+    "kind:content_segment": {
+     "n": 17170,
+     "p50_ms": 0.7755793631076813,
+     "p95_ms": 1.139593124389648,
+     "p99_ms": 1.7241285741329222
+    },
+    "kind:tool_call": {
+     "n": 7813,
+     "p50_ms": 1.0378547012805939,
+     "p95_ms": 2.467086911201477,
+     "p99_ms": 3.6970032751560216
+    },
+    "scope:cot": {
+     "n": 8091,
+     "p50_ms": 0.846128910779953,
+     "p95_ms": 2.386517822742462,
+     "p99_ms": 3.361884504556656
+    },
+    "scope:ctx40k": {
+     "n": 8306,
+     "p50_ms": 0.8014589548110962,
+     "p95_ms": 1.1351397261023521,
+     "p99_ms": 1.7141399905085588
+    },
+    "scope:nothink": {
+     "n": 8586,
+     "p50_ms": 0.8276831358671188,
+     "p95_ms": 1.777462661266327,
+     "p99_ms": 2.3325975984334946
+    },
+    "len:0-2000": {
+     "n": 1640,
+     "p50_ms": 0.8465927094221115,
+     "p95_ms": 1.0010551661252975,
+     "p99_ms": 1.097674965858459
+    },
+    "len:2000-8000": {
+     "n": 7472,
+     "p50_ms": 0.7880683988332748,
+     "p95_ms": 1.2527810409665106,
+     "p99_ms": 1.5265359356999397
+    },
+    "len:8000-20000": {
+     "n": 9872,
+     "p50_ms": 0.8022170513868332,
+     "p95_ms": 2.0674152299761768,
+     "p99_ms": 2.517785876989362
+    },
+    "len:20000-1000000000": {
+     "n": 5999,
+     "p50_ms": 0.8782781660556793,
+     "p95_ms": 2.595261111855506,
+     "p99_ms": 5.052960142493218
+    }
+   },
+   "gpu_peak_alloc_bytes": 34838016,
+   "cpu_maxrss_kb": 2070964,
+   "cost_passed_1ms": false
+  },
+  "coverage": {
+   "events": 25003,
+   "scored": 24983,
+   "no_emission_skipped": 20,
+   "episodes": 2028,
+   "per_pass": true,
+   "causal_episode_order": true
+  },
+  "artifacts": {
+   "cost_r2_summary.json": "7fd0b2b41378deee03f29498411cba75bd3c85a130417d4c922fcfb5c72eda6b",
+   "cost_r2_p0.json": "be13fab379bec3fe641a79d5af1cb05ae6e9eb984255a360d0547fd92993bb17",
+   "cost_r2_p1.json": "9cc0773b442b666f3f334e3a9e1b41d1da46cec90efda37cbe7df4c5fe381398",
+   "cost_r2_p2.json": "8c7294ebc493a8b53dfd6c1ded16ee32d9a7e0d76d4a3f11a0c2ece110958b21",
+   "cost_r2_isolated.json": "da195ef1943f3d4a1ad84dcbf00f1866b12b5aef1f230266fbe860c77cfedfc3"
+  }
+ },
+ "tests": {
+  "command": "PYTHONPATH=src python -m unittest discover -s tests",
+  "passed": 21,
+  "failed": 0,
+  "log": "logs/tests_runtime_r2.log"
+ },
+ "replay_artifacts": {
+  "replay_s2_fusion.json": "08f6a2a674c021591b756c1a61407eedb7d44755f8ebab05bcb85bf2ac8c520b",
+  "replay_stream_scores.npz": "553a0a02f306caa1841fd01ac1987c8cc2a33e86756ac641589be39a72d16e95"
+ },
+ "cpu_store": {
+  "host": "connect.bjb2.seetacloud.com",
+  "port": 13661,
+  "hostname": "autodl-container-rml149b1gp-b62cb45e",
+  "dest": "/root/autodl-tmp/sdsafe-lowcost-authorization-v6-param/handoff/runtime-r2/v6-param-runtime-r2.tar.gz",
+  "status": "uploaded",
+  "bundle_sha256_recorded_in": "CPU_SYNC_R2.json",
+  "readback": "sha256sum on CPU equals local bundle SHA"
+ },
+ "residual_risks": [
+  "p95<=1ms not met when the first-event token-decode burst is charged; later-event p95 0.977ms isolated.",
+  "fusion frozen-tau batch-1 stream 11/79 vs saved 11/80 (2.23e-8 rounding boundary); parent decision needed.",
+  "FUSION_S2 remains exploratory DEV reuse; strong FN<=8 target not met.",
+  "20 no-view rows use a no-new-emission policy, not GT fallback.",
+  "Teacher labels remain model-generated; no repair attempted."
+ ]
+}

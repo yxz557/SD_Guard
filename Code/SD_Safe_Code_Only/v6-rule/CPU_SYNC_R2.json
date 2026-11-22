@@ -1,0 +1,20 @@
+{
+ "run": "sdsafe-v6-param cache-only-r2 runtime",
+ "host": "connect.bjb2.seetacloud.com",
+ "port": 13661,
+ "hostname": "autodl-container-rml149b1gp-b62cb45e",
+ "dest": "/root/autodl-tmp/sdsafe-lowcost-authorization-v6-param/handoff/runtime-r2/v6-param-runtime-r2.tar.gz",
+ "local_bundle_sha256": "f7fdc369e6f023bcd0b81330b3794678602232b1b5431b95179d2e17cb1d5186",
+ "bytes": 257920,
+ "method": "scp to .tmp.<pid>.tar.gz then remote sha256sum, atomic mv, remote sha256sum readback",
+ "readback_sha256": "f7fdc369e6f023bcd0b81330b3794678602232b1b5431b95179d2e17cb1d5186",
+ "status": "verified",
+ "uploaded_utc": "2026-11-14T11:26:45Z",
+ "contents": [
+  "artifacts/runtime-r2 (parity/replay/cost JSON,npz,source manifest)",
+  "src/runtime_fast.py + scripts + tests",
+  "RUNTIME_R2_REPORT.md",
+  "HANDOFF_R2.json",
+  "logs/tests_runtime_r2.log + cost/replay logs"
+ ]
+}

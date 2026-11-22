@@ -1,0 +1,31 @@
+{
+ "stage": "runtime-r4",
+ "cpu_authoritative_path": "/root/autodl-tmp/sdsafe-lowcost-authorization-v6-param/runtime-r4",
+ "cpu_endpoint": "root@connect.bjb2.seetacloud.com:13661",
+ "ssh_options": {
+  "key": "/root/sdsafe-runner-runtime/keys/id_ed25519_cpu_store",
+  "known_hosts": "/root/sdsafe-runner-runtime/known_hosts_cpu",
+  "StrictHostKeyChecking": "yes",
+  "BatchMode": "yes"
+ },
+ "bundle_tar_sha256": "5330630e79d0664a69d087c513ade8a6ae65b3583046b86e4068497ccf33ec4a",
+ "manifest_sha256": "8ce56c10892415f03a9b112a434032ff428c30e6e0a1ab4effe0d464959d567a",
+ "manifest_files": 80,
+ "verified_ok": 80,
+ "verified_failed": 0,
+ "readback_key_sha256": {
+  "SHA256SUMS": "8ce56c10892415f03a9b112a434032ff428c30e6e0a1ab4effe0d464959d567a",
+  "artifacts/parity_r4.json": "7781c7478299dc250e9d75b8e0df5cf8c8081895ed9577256a35ee7ae204e606",
+  "artifacts/parity_r4_row_logits.npz": "dd2d32f665ef9952911206e1dc59e0b9b7752368020d2ef1e8509d7fd69959e7",
+  "artifacts/cost_r4_summary.json": "1d80e7c5f037ec8d069ccc439d52e7c46a72cb222a26b52e9b3f818630a3ef97",
+  "artifacts/accuracy_r4.json": "d80620d0d0800649b332c2748d86aedf0d354cbdad6fcb93028aeec8666a579f",
+  "artifacts/frozen_sha_r4.json": "85e126e197b74ee2193271424fccfe98937376e15f3051eb4627ff93b682236f",
+  "reports/HANDOFF_R4.json": "3567c455849b1f648400f0d03e69c615c39c23d0e280dadf5b303286054f689e",
+  "reports/RUNTIME_R4_REPORT.md": "84407aa500b07d07f39bffadd7ecd21bddb20e0c84e952b5589de3cc6634e45e"
+ },
+ "readback_matches_gpu": true,
+ "atomic_method": "tar stream to CPU .r4stage, sha256sum -c 80/80 OK, rename to runtime-r4, then readback key SHA-256 (8/8 equal)",
+ "test_material_read": false,
+ "new_annotation_requests": 0,
+ "note": "remote host is connect.bjb2.seetacloud.com:13661 (not localhost); corrected-r3/ and all old r1/r2/r3 artifacts were left untouched; 6.7 MiB new dir; 81 files incl SHA256SUMS."
+}

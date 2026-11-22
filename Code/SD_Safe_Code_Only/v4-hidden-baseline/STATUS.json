@@ -1,0 +1,143 @@
+{
+  "study": "sdsafe-lowcost-authorization-v4",
+  "phase": "earlier-layer activation stage complete",
+  "status": "stage_complete",
+  "candidate": null,
+  "blocks": [
+    4,
+    8
+  ],
+  "coverage": {
+    "train": {
+      "episodes": 8229,
+      "rows": 114799,
+      "tokens": 122566048,
+      "by_scope": {
+        "cot": {
+          "episodes": 2558,
+          "rows": 32973,
+          "tokens": 52014842
+        },
+        "ctx40k": {
+          "episodes": 2539,
+          "rows": 33086,
+          "tokens": 13710801
+        },
+        "nothink": {
+          "episodes": 2328,
+          "rows": 32743,
+          "tokens": 51576635
+        },
+        "agentlab": {
+          "episodes": 804,
+          "rows": 15997,
+          "tokens": 5263770
+        }
+      },
+      "last_run": {
+        "split": "train",
+        "universe_episodes": 8229,
+        "captured_episodes": 8229,
+        "this_run_episodes": 4615,
+        "ct_rows": 61052,
+        "tokens": 57241620,
+        "gpu_seconds": 1614.89,
+        "wall_seconds": 1630.46,
+        "tokens_per_second_gpu": 35446.1,
+        "peak_cuda_bytes": 8719235072,
+        "blocks": [
+          4,
+          8
+        ],
+        "rows_bytes_note": "block4+block8 stored as bf16 uint16; 8192 B per row per block"
+      }
+    },
+    "dev": {
+      "episodes": 2028,
+      "rows": 25003,
+      "tokens": 26841965,
+      "by_scope": {
+        "cot": {
+          "episodes": 675,
+          "rows": 8091,
+          "tokens": 11772806
+        },
+        "ctx40k": {
+          "episodes": 697,
+          "rows": 8326,
+          "tokens": 2751509
+        },
+        "nothink": {
+          "episodes": 656,
+          "rows": 8586,
+          "tokens": 12317650
+        }
+      }
+    }
+  },
+  "best_variant": {
+    "F:full": {
+      "episodes": 2028,
+      "positives": 414,
+      "tp": 383,
+      "fp": 80,
+      "fn": 31,
+      "tn": 1534,
+      "fnr": 0.0748792270531401,
+      "fpr": 0.04956629491945477,
+      "auc": 0.9796197522882507,
+      "threshold": 0.19054557383060455
+    }
+  },
+  "baseline": {
+    "tp": 393,
+    "fn": 21,
+    "fp": 78,
+    "tn": 1536,
+    "auc": 0.9811267951319673,
+    "threshold": -0.6190447211265564
+  },
+  "runs": 18,
+  "validation": {
+    "checks": 12,
+    "passed": 12,
+    "failed": [],
+    "mutations": {
+      "token_offset_plus_one_detected": true,
+      "block_swap_detected": true,
+      "future_round_digest_mismatch_detected": true,
+      "dev_rows_in_fit_detected": true,
+      "forged_metric_detected": false,
+      "manifest_digest_check_available": true
+    }
+  },
+  "next": "parent decision: extend TRAIN coverage, add pooling/formulation variants, or retire the route",
+  "generated": "2026-11-14T01:55:30+08:00",
+  "migration": {
+    "status": "complete_and_durable",
+    "report": "MIGRATION_REPORT.md",
+    "cpu_durable": "/root/autodl-tmp/sdsafe-lowcost-authorization-v4-gpu"
+  },
+  "v4b_arm_G": {
+    "dev_fn": 21,
+    "dev_fp": 80,
+    "dev_auc": 0.9848786882890649,
+    "vs_F_dFN_ci95": [
+      -20,
+      -1
+    ],
+    "vs_base_dFN_ci95": [
+      -8,
+      8
+    ]
+  },
+  "v4c_next": {
+    "status": "pre_registered_not_started",
+    "blocks": "16 and/or 24",
+    "budget_hours": [
+      3.2,
+      4.8
+    ]
+  },
+  "git_head": "0124f84a4c8e53e67acc9a613ed4b8f204bae54b"
+}

@@ -1,0 +1,913 @@
+{
+  "study": "sdsafe-lowcost-authorization-v4",
+  "role": "remote Pi worker (deepseek-flash), new-stage sole writer",
+  "status": "stage_complete",
+  "verdict": {
+    "candidate_selected": null,
+    "progress_bar_fn_le_14_met": false,
+    "strong_fn_le_8_met": false,
+    "best_variant": "F:full",
+    "best_variant_metrics": {
+      "episodes": 2028,
+      "positives": 414,
+      "tp": 383,
+      "fp": 80,
+      "fn": 31,
+      "tn": 1534,
+      "fnr": 0.0748792270531401,
+      "fpr": 0.04956629491945477,
+      "auc": 0.9796197522882507,
+      "threshold": 0.19054557383060455
+    },
+    "coverage": "FULL common DEV"
+  },
+  "accepted_baseline": {
+    "tp": 393,
+    "fn": 21,
+    "fp": 78,
+    "tn": 1536,
+    "auc": 0.9811267951319673,
+    "threshold": -0.6190447211265564
+  },
+  "heldout_selection": {
+    "C": {
+      "episodes": 2015,
+      "positives": 371,
+      "tp": 360,
+      "fp": 82,
+      "fn": 11,
+      "tn": 1562,
+      "fnr": 0.029649595687331536,
+      "fpr": 0.049878345498783457,
+      "auc": 0.9906873643273588,
+      "threshold": -1.847243110338847
+    },
+    "E": {
+      "episodes": 2015,
+      "positives": 371,
+      "tp": 345,
+      "fp": 82,
+      "fn": 26,
+      "tn": 1562,
+      "fnr": 0.07008086253369272,
+      "fpr": 0.049878345498783457,
+      "auc": 0.980843514929729,
+      "threshold": -3.009597897529602
+    },
+    "F": {
+      "episodes": 2015,
+      "positives": 371,
+      "tp": 355,
+      "fp": 82,
+      "fn": 16,
+      "tn": 1562,
+      "fnr": 0.0431266846361186,
+      "fpr": 0.049878345498783457,
+      "auc": 0.9910775768784308,
+      "threshold": -4.5200430154800415
+    }
+  },
+  "dev_variants": {
+    "C:ho": {
+      "episodes": 2028,
+      "positives": 414,
+      "tp": 379,
+      "fp": 80,
+      "fn": 35,
+      "tn": 1534,
+      "fnr": 0.08454106280193237,
+      "fpr": 0.04956629491945477,
+      "auc": 0.9712614262880951,
+      "threshold": 1.2218802943825722
+    },
+    "C:full": {
+      "episodes": 2028,
+      "positives": 414,
+      "tp": 381,
+      "fp": 80,
+      "fn": 33,
+      "tn": 1534,
+      "fnr": 0.07971014492753623,
+      "fpr": 0.04956629491945477,
+      "auc": 0.9759277218061766,
+      "threshold": -1.0496009352306523
+    },
+    "E:ho": {
+      "episodes": 2028,
+      "positives": 414,
+      "tp": 367,
+      "fp": 80,
+      "fn": 47,
+      "tn": 1534,
+      "fnr": 0.11352657004830918,
+      "fpr": 0.04956629491945477,
+      "auc": 0.9703470239271113,
+      "threshold": -0.618503525853157
+    },
+    "E:full": {
+      "episodes": 2028,
+      "positives": 414,
+      "tp": 364,
+      "fp": 80,
+      "fn": 50,
+      "tn": 1534,
+      "fnr": 0.12077294685990338,
+      "fpr": 0.04956629491945477,
+      "auc": 0.9725754120048609,
+      "threshold": 0.715290904045105
+    },
+    "F:ho": {
+      "episodes": 2028,
+      "positives": 414,
+      "tp": 382,
+      "fp": 80,
+      "fn": 32,
+      "tn": 1534,
+      "fnr": 0.07729468599033816,
+      "fpr": 0.04956629491945477,
+      "auc": 0.9756703123035756,
+      "threshold": -0.5934711595376333
+    },
+    "F:full": {
+      "episodes": 2028,
+      "positives": 414,
+      "tp": 383,
+      "fp": 80,
+      "fn": 31,
+      "tn": 1534,
+      "fnr": 0.0748792270531401,
+      "fpr": 0.04956629491945477,
+      "auc": 0.9796197522882507,
+      "threshold": 0.19054557383060455
+    }
+  },
+  "dev_baseline_full_2028": {
+    "episodes": 2028,
+    "tp": 393,
+    "fp": 80,
+    "fn": 21,
+    "tn": 1534,
+    "fnr": 0.050724637681159424,
+    "fpr": 0.04956629491945477,
+    "auc": 0.9811267951319673,
+    "threshold": -0.7446078459421794
+  },
+  "dev_baseline_covered_subset": {
+    "episodes": 2028,
+    "tp": 393,
+    "fp": 80,
+    "fn": 21,
+    "tn": 1534,
+    "fnr": 0.050724637681159424,
+    "fpr": 0.04956629491945477,
+    "auc": 0.9811267951319673,
+    "threshold": -0.7446078459421794
+  },
+  "fallback_full_universe": {
+    "variant": "F:full + accepted-base fallback on nothink/uncovered episodes",
+    "episodes": 2028,
+    "tp": 383,
+    "fp": 80,
+    "fn": 31,
+    "tn": 1534,
+    "fnr": 0.0748792270531401,
+    "fpr": 0.04956629491945477,
+    "auc": 0.9796197522882507,
+    "threshold": 0.9210700118835103,
+    "stitching": "label-free affine z-scoring per covered/missing part; NOT a candidate",
+    "covered": 2028,
+    "missing": 0
+  },
+  "bootstrap": {
+    "F_vs_C": {
+      "replicates_requested": 2000,
+      "replicates_valid": 2000,
+      "seed": 20261111,
+      "d_fn": {
+        "mean": -1.983,
+        "ci95": [
+          -9.0,
+          6.0
+        ],
+        "p_le_0": 0.733
+      },
+      "d_fp": {
+        "mean": -0.002,
+        "ci95": [
+          -11.0,
+          11.0
+        ],
+        "p_le_0": 0.536
+      },
+      "d_fnr": {
+        "mean": -0.004904532002393517,
+        "ci95": [
+          -0.023255813953488358,
+          0.01333632286995513
+        ],
+        "p_le_0": 0.733
+      },
+      "d_fpr": {
+        "mean": -3.9861242392854655e-06,
+        "ci95": [
+          -0.006799467381025005,
+          0.006659711494054441
+        ],
+        "p_le_0": 0.536
+      }
+    },
+    "E_vs_C": {
+      "replicates_requested": 2000,
+      "replicates_valid": 2000,
+      "seed": 20261111,
+      "d_fn": {
+        "mean": 16.982,
+        "ci95": [
+          1.0,
+          39.0
+        ],
+        "p_le_0": 0.0245
+      },
+      "d_fp": {
+        "mean": 0.097,
+        "ci95": [
+          -22.0,
+          25.0
+        ],
+        "p_le_0": 0.5435
+      },
+      "d_fnr": {
+        "mean": 0.04072638946513737,
+        "ci95": [
+          0.0023066771565616925,
+          0.08920397384305835
+        ],
+        "p_le_0": 0.0245
+      },
+      "d_fpr": {
+        "mean": 2.713156251157268e-05,
+        "ci95": [
+          -0.014129904442494373,
+          0.015515701292986007
+        ],
+        "p_le_0": 0.5435
+      }
+    },
+    "F_vs_accepted_base": {
+      "replicates_requested": 2000,
+      "replicates_valid": 2000,
+      "seed": 20261111,
+      "d_fn": {
+        "mean": 10.0295,
+        "ci95": [
+          1.0,
+          21.0
+        ],
+        "p_le_0": 0.0225
+      },
+      "d_fp": {
+        "mean": 0.0435,
+        "ci95": [
+          -12.0,
+          12.0
+        ],
+        "p_le_0": 0.5355
+      },
+      "d_fnr": {
+        "mean": 0.024246618083347434,
+        "ci95": [
+          0.0023627012595613616,
+          0.04986495844875345
+        ],
+        "p_le_0": 0.0225
+      },
+      "d_fpr": {
+        "mean": 2.390518608229871e-05,
+        "ci95": [
+          -0.007481530256755115,
+          0.007214165361666693
+        ],
+        "p_le_0": 0.5355
+      }
+    }
+  },
+  "coverage": {
+    "train": {
+      "episodes": 8229,
+      "rows": 114799,
+      "tokens": 122566048,
+      "by_scope": {
+        "cot": {
+          "episodes": 2558,
+          "rows": 32973,
+          "tokens": 52014842
+        },
+        "ctx40k": {
+          "episodes": 2539,
+          "rows": 33086,
+          "tokens": 13710801
+        },
+        "nothink": {
+          "episodes": 2328,
+          "rows": 32743,
+          "tokens": 51576635
+        },
+        "agentlab": {
+          "episodes": 804,
+          "rows": 15997,
+          "tokens": 5263770
+        }
+      },
+      "last_run": {
+        "split": "train",
+        "universe_episodes": 8229,
+        "captured_episodes": 8229,
+        "this_run_episodes": 4615,
+        "ct_rows": 61052,
+        "tokens": 57241620,
+        "gpu_seconds": 1614.89,
+        "wall_seconds": 1630.46,
+        "tokens_per_second_gpu": 35446.1,
+        "peak_cuda_bytes": 8719235072,
+        "blocks": [
+          4,
+          8
+        ],
+        "rows_bytes_note": "block4+block8 stored as bf16 uint16; 8192 B per row per block"
+      }
+    },
+    "dev": {
+      "episodes": 2028,
+      "rows": 25003,
+      "tokens": 26841965,
+      "by_scope": {
+        "cot": {
+          "episodes": 675,
+          "rows": 8091,
+          "tokens": 11772806
+        },
+        "ctx40k": {
+          "episodes": 697,
+          "rows": 8326,
+          "tokens": 2751509
+        },
+        "nothink": {
+          "episodes": 656,
+          "rows": 8586,
+          "tokens": 12317650
+        }
+      }
+    }
+  },
+  "smoke": {
+    "stage": "smoke",
+    "blocks": [
+      4,
+      8
+    ],
+    "episodes": [
+      {
+        "episode_id": "ctx40k::agentlab-fc922cefbf25c45989d8d4504f1374ae",
+        "role": "short",
+        "scope": "ctx40k",
+        "rounds": [
+          {
+            "round_id": 1,
+            "sequence_length": 159,
+            "prompt_length": 132,
+            "n_ct_endpoints": 1,
+            "gpu_seconds": 0.7165,
+            "token_layer_per_s": 1.8,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 2,
+            "sequence_length": 267,
+            "prompt_length": 242,
+            "n_ct_endpoints": 1,
+            "gpu_seconds": 0.0288,
+            "token_layer_per_s": 74.2,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 3,
+            "sequence_length": 321,
+            "prompt_length": 287,
+            "n_ct_endpoints": 2,
+            "gpu_seconds": 0.0297,
+            "token_layer_per_s": 86.6,
+            "blocks": [
+              4,
+              8
+            ]
+          }
+        ],
+        "recorded_tokens": 747,
+        "gpu_seconds": 0.775,
+        "gpu_tokens_per_s": 963.9,
+        "probe_first_round": true
+      },
+      {
+        "episode_id": "cot32k::agentlab-85124e29258d4c5813f6df3d2fc5e6cb",
+        "role": "multi_call_text",
+        "scope": "cot",
+        "rounds": [
+          {
+            "round_id": 1,
+            "sequence_length": 3416,
+            "prompt_length": 1345,
+            "n_ct_endpoints": 1,
+            "gpu_seconds": 0.2058,
+            "token_layer_per_s": 132.8,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 2,
+            "sequence_length": 3113,
+            "prompt_length": 1429,
+            "n_ct_endpoints": 1,
+            "gpu_seconds": 0.167,
+            "token_layer_per_s": 149.1,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 3,
+            "sequence_length": 3330,
+            "prompt_length": 1554,
+            "n_ct_endpoints": 1,
+            "gpu_seconds": 0.1829,
+            "token_layer_per_s": 145.7,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 4,
+            "sequence_length": 2580,
+            "prompt_length": 1607,
+            "n_ct_endpoints": 1,
+            "gpu_seconds": 0.1456,
+            "token_layer_per_s": 141.8,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 5,
+            "sequence_length": 2229,
+            "prompt_length": 1656,
+            "n_ct_endpoints": 1,
+            "gpu_seconds": 0.1218,
+            "token_layer_per_s": 146.4,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 6,
+            "sequence_length": 2801,
+            "prompt_length": 1702,
+            "n_ct_endpoints": 1,
+            "gpu_seconds": 0.1521,
+            "token_layer_per_s": 147.3,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 7,
+            "sequence_length": 2559,
+            "prompt_length": 1742,
+            "n_ct_endpoints": 1,
+            "gpu_seconds": 0.1316,
+            "token_layer_per_s": 155.6,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 8,
+            "sequence_length": 4437,
+            "prompt_length": 1779,
+            "n_ct_endpoints": 2,
+            "gpu_seconds": 0.2417,
+            "token_layer_per_s": 146.9,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 9,
+            "sequence_length": 2643,
+            "prompt_length": 1856,
+            "n_ct_endpoints": 11,
+            "gpu_seconds": 0.148,
+            "token_layer_per_s": 142.9,
+            "blocks": [
+              4,
+              8
+            ]
+          },
+          {
+            "round_id": 10,
+            "sequence_length": 2382,
+            "prompt_length": 2050,
+            "n_ct_endpoints": 4,
+            "gpu_seconds": 0.1281,
+            "token_layer_per_s": 148.8,
+            "blocks": [
+              4,
+              8
+            ]
+          }
+        ],
+        "recorded_tokens": 29490,
+        "gpu_seconds": 1.625,
+        "gpu_tokens_per_s": 18152.7,
+        "probe_first_round": true
+      }
+    ],
+    "picks": [
+      {
+        "episode_id": "ctx40k::agentlab-fc922cefbf25c45989d8d4504f1374ae",
+        "role": "short"
+      },
+      {
+        "episode_id": "cot32k::agentlab-85124e29258d4c5813f6df3d2fc5e6cb",
+        "role": "multi_call_text"
+      }
+    ],
+    "sequence_source_seconds": 29.108,
+    "gpu_weight_bytes": 4332856320,
+    "gpu_peak_bytes": 4896114688,
+    "hook_vs_replicated": {
+      "4": {
+        "bitwise_equal": true,
+        "max_abs_diff": 0.0,
+        "shape": [
+          2,
+          4096
+        ]
+      },
+      "8": {
+        "bitwise_equal": true,
+        "max_abs_diff": 0.0,
+        "shape": [
+          2,
+          4096
+        ]
+      }
+    },
+    "reference_episode": "ctx40k::agentlab-fc922cefbf25c45989d8d4504f1374ae",
+    "reference_round": 3,
+    "reference_sequence_length": 321,
+    "reference_positions": [
+      298,
+      319
+    ],
+    "suffix_invariance": {
+      "block": 4,
+      "position": 298,
+      "max_abs_diff": 0.0,
+      "bitwise_equal": true
+    },
+    "cpu_fp32_prefix_seconds": 11.28,
+    "gpu_bf16_vs_cpu_fp32": {
+      "4": {
+        "max_abs": 0.01873326301574707,
+        "mean_abs": 0.0010432742531349959,
+        "max_rel": 84.43066644940525,
+        "cosine_min": 0.9999882707287857
+      },
+      "8": {
+        "max_abs": 0.1239471435546875,
+        "mean_abs": 0.002944043740114921,
+        "max_rel": 73.75589353612168,
+        "cosine_min": 0.999983984203243
+      }
+    },
+    "cpu_full36_seconds": 220.47,
+    "gpu_prefix_vs_full36_cpu_bf16": {
+      "4": {
+        "max_abs": 0.015625,
+        "mean_abs": 0.0008434695191681385,
+        "max_rel": 1586.9140625,
+        "cosine_min": 0.9999916726194548
+      },
+      "8": {
+        "max_abs": 0.25,
+        "mean_abs": 0.003447689116001129,
+        "max_rel": 3906.25,
+        "cosine_min": 0.9999717900699627
+      }
+    },
+    "accepted_feature_end_to_end": {
+      "rows": 2,
+      "cpu_full36_vs_accepted_bf16": {
+        "max_abs": 2.0,
+        "mean_abs": 0.025343728077132255,
+        "max_rel": 75195.3125,
+        "cosine_min": 0.9997871663516772
+      },
+      "note": "complete 36-layer CPU bf16 forward through model.norm vs the accepted bf16 matrix"
+    },
+    "migration_note": "smoke numbers are from the retired 3080Ti node; the new 4090 cross-GPU canary is artifacts/canary/canary_report.json (6 eps, cos_min>=0.99993, bindings identical)"
+  },
+  "cost": {
+    "rep0": {
+      "host": {
+        "rep": 0,
+        "events": 600,
+        "device_only": false,
+        "base": {
+          "p50_ms": 0.19277259707450867,
+          "p95_ms": 0.19981302320957184,
+          "p99_ms": 0.2110902965068816,
+          "mean_ms": 0.19513020912806192,
+          "score_head_max": 10.55911922454834
+        },
+        "cand": {
+          "p50_ms": 0.20503439009189606,
+          "p95_ms": 0.2124996855854988,
+          "p99_ms": 0.22370319813489914,
+          "mean_ms": 0.2070044788221518,
+          "score_head_max": 10.989198684692383
+        },
+        "increment_p95_ms": 0.012686662375926971,
+        "increment_p50_ms": 0.01226179301738739,
+        "peak_cuda_bytes": 88101376
+      },
+      "device": {
+        "rep": 0,
+        "events": 600,
+        "device_only": true,
+        "base": {
+          "p50_ms": 0.1600608229637146,
+          "p95_ms": 0.21980088204145432,
+          "p99_ms": 0.26414472609758377,
+          "mean_ms": 0.1690250759323438,
+          "score_head_max": 10.55911922454834
+        },
+        "cand": {
+          "p50_ms": 0.13522617518901825,
+          "p95_ms": 0.1891646534204483,
+          "p99_ms": 0.21911948919296265,
+          "mean_ms": 0.14179060235619545,
+          "score_head_max": 10.989198684692383
+        },
+        "increment_p95_ms": -0.030636228621006012,
+        "increment_p50_ms": -0.02483464777469635,
+        "peak_cuda_bytes": 96621056
+      }
+    },
+    "rep1": {
+      "host": {
+        "rep": 1,
+        "events": 600,
+        "device_only": false,
+        "base": {
+          "p50_ms": 0.1951809972524643,
+          "p95_ms": 0.20193178206682205,
+          "p99_ms": 0.20691629499197006,
+          "mean_ms": 0.1958383060991764,
+          "score_head_max": 18.310218811035156
+        },
+        "cand": {
+          "p50_ms": 0.2073422074317932,
+          "p95_ms": 0.21307989954948425,
+          "p99_ms": 0.2175770327448845,
+          "mean_ms": 0.2078105447192987,
+          "score_head_max": 15.56434154510498
+        },
+        "increment_p95_ms": 0.011148117482662201,
+        "increment_p50_ms": 0.012161210179328918,
+        "peak_cuda_bytes": 88101376
+      },
+      "device": {
+        "rep": 1,
+        "events": 600,
+        "device_only": true,
+        "base": {
+          "p50_ms": 0.1361854374408722,
+          "p95_ms": 0.1401292160153389,
+          "p99_ms": 0.1456182450056076,
+          "mean_ms": 0.13664336875081062,
+          "score_head_max": 18.310218811035156
+        },
+        "cand": {
+          "p50_ms": 0.1364685595035553,
+          "p95_ms": 0.14218986034393308,
+          "p99_ms": 0.15432704240083686,
+          "mean_ms": 0.13738293821612993,
+          "score_head_max": 15.56434154510498
+        },
+        "increment_p95_ms": 0.00206064432859418,
+        "increment_p50_ms": 0.00028312206268310547,
+        "peak_cuda_bytes": 96621056
+      }
+    },
+    "rep2": {
+      "host": {
+        "rep": 2,
+        "events": 600,
+        "device_only": false,
+        "base": {
+          "p50_ms": 0.19766949117183685,
+          "p95_ms": 0.20458512008190155,
+          "p99_ms": 0.2097747102379799,
+          "mean_ms": 0.19844517732659975,
+          "score_head_max": 14.216323852539062
+        },
+        "cand": {
+          "p50_ms": 0.21058320999145508,
+          "p95_ms": 0.2172013744711876,
+          "p99_ms": 0.22282440215349197,
+          "mean_ms": 0.2114095725119114,
+          "score_head_max": 11.988594055175781
+        },
+        "increment_p95_ms": 0.012616254389286041,
+        "increment_p50_ms": 0.012913718819618225,
+        "peak_cuda_bytes": 88101376
+      },
+      "device": {
+        "rep": 2,
+        "events": 600,
+        "device_only": true,
+        "base": {
+          "p50_ms": 0.23622624576091766,
+          "p95_ms": 0.24421252310276031,
+          "p99_ms": 0.24949397891759872,
+          "mean_ms": 0.23348286747932434,
+          "score_head_max": 14.216323852539062
+        },
+        "cand": {
+          "p50_ms": 0.13824738562107086,
+          "p95_ms": 0.14332029968500137,
+          "p99_ms": 0.1520814374089241,
+          "mean_ms": 0.13891618698835373,
+          "score_head_max": 11.988594055175781
+        },
+        "increment_p95_ms": -0.10089222341775894,
+        "increment_p50_ms": -0.0979788601398468,
+        "peak_cuda_bytes": 96621056
+      }
+    }
+  },
+  "validation": {
+    "checks": 12,
+    "passed": 12,
+    "failed": [],
+    "mutations": {
+      "token_offset_plus_one_detected": true,
+      "block_swap_detected": true,
+      "future_round_digest_mismatch_detected": true,
+      "dev_rows_in_fit_detected": true,
+      "forged_metric_detected": false,
+      "manifest_digest_check_available": true
+    }
+  },
+  "runs": {
+    "count": 18,
+    "arms": [
+      "C terminal-only control",
+      "E block4+block8",
+      "F fused"
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "tags": [
+      "ho (fold 0 held out)",
+      "full (all TRAIN groups)"
+    ],
+    "artifact": "artifacts/runs.json"
+  },
+  "git_commits": [
+    "0124f84 fix(cost): batched fused-head matmul + deferred __main__ + CAPTURE_BLOCKS import; fix(validate): read DEV variants from report['dev']",
+    "9aca299 fix(train_eval,validate): bf16->f32 resident/matrix path must shift uint16 bits by 16; torch paths already correct The device-resident arm matrices (HEAD 'single gather per batch') reinterpreted bf16 bit patterns as low bits of float32, feeding ~denormal values and collapsing all arms to constant episode scores (AUC 0.5). Frozen P5 had never been executed. Adds no method change; conversion now equals the torch bfloat16 view (checked maxabs 0.0).",
+    "80d9cef migration: prepared-aware validator recapture and hook-cost (source-free GPU path)",
+    "8923034 migration: CPU-prepared token-id jobs (writer/reader) + prepared capture producer + prepared canary",
+    "502d971 migration: allow {split} placeholder in SDSAFE_EPISODE_DIRS union view",
+    "55da3d5 migration: env-gated old-shard pre-skip for capture + union episode view for train/validate (default behavior unchanged)",
+    "ddc144b migration: explicit SDSAFE_UPSTREAM_MIRROR path mapping (default unchanged) + PLAN/PROTOCOL/STATUS/path-map",
+    "aa8168e import frozen v4 source from CPU HEAD ebed68372028654ca2d9bc33e29beafb915e858f (read-only copy; before path mapping)"
+  ],
+  "diffstat": "MIGRATION_PLAN.md               |  70 ++++++++++++++\n MIGRATION_PROTOCOL.md           |  61 ++++++++++++\n STATUS.json                     | 117 +++++++++++++++++++++++\n scripts/canary.py               | 144 ++++++++++++++++++++++++++++\n scripts/migrate_pull_deps.sh    |  26 +++++\n scripts/migrate_pull_deps2.sh   |  18 ++++\n scripts/run_capture_gpu.sh      |  27 ++++++\n scripts/sync_to_cpu.sh          |  18 ++++\n scripts/verify_synced_cpu.py    |  42 ++++++++\n src/sdsafe_v4/__init__.py       |  14 ++-\n src/sdsafe_v4/agentdojo_shim.py |   4 +-\n src/sdsafe_v4/capture.py        |  43 ++++++++-\n src/sdsafe_v4/cost.py           |  70 +++++++++-----\n src/sdsafe_v4/prepared.py       | 206 ++++++++++++++++++++++++++++++++++++++++\n src/sdsafe_v4/train_eval.py     |  31 ++++--\n src/sdsafe_v4/validate.py       |  63 ++++++++----\n 16 files changed, 888 insertions(+), 66 deletions(-)",
+  "manifest": "artifacts/manifests/artifact_hashes.json",
+  "note": "DEV is an exploratory reuse of the accepted common-DEV universe; the accepted baseline checkpoint was itself DEV-selected. No TEST material was read, no API was called, no second backbone pass is proposed for deployment.",
+  "migration": {
+    "run": "gpu-node-migration-v4",
+    "status": "complete_and_durable",
+    "old_source_head": "ebed68372028654ca2d9bc33e29beafb915e858f",
+    "new_gpu": "autodl-container-ujxcycmw77-6fc011ce RTX4090 24564MiB",
+    "cpu_store": "autodl-container-rml149b1gp-b62cb45e -p13661",
+    "durable_dir": "/root/autodl-tmp/sdsafe-lowcost-authorization-v4-gpu",
+    "path_mapping": "SDSAFE_UPSTREAM_MIRROR -> /dev/shm/sdsafe-gpu-v4/upstream (byte-identical, unset==original)",
+    "token_ids": "CPU-prepared jobs via frozen iterators; GPU only forwards",
+    "model_verified": "5 shard sizes + index/config/tokenizer/vocab/merges SHA == manifest; 36 layers, 399 tensors",
+    "old_shards_sha": "3612 train + 2028 dev verified, 0 bad",
+    "cross_gpu_canary": {
+      "episodes": 6,
+      "cos_min_block4": 0.9999468,
+      "cos_min_block8": 0.9999292,
+      "bindings": "identical",
+      "artifact": "artifacts/canary/canary_report.json"
+    },
+    "new_capture": {
+      "episodes": 4617,
+      "gpu_seconds": 1616.2,
+      "tok_per_s": 35130,
+      "peak_cuda_bytes": 6649020416,
+      "durable_verified": 4617,
+      "bad": 0
+    },
+    "latent_bug_fixes": [
+      "train_eval.full_matrix + validate independent recompute: bf16->f32 resident path missing <<16 (collapsed all arms to AUC 0.5; frozen P5 never ran)",
+      "cost fused 3-head matmul used .t() on 3-D weight; __main__ before hook_cost; missing CAPTURE_BLOCKS import",
+      "validate: DEV variants read from report[dev]; cuda tensor -> numpy; JSON-serialise numpy"
+    ]
+  },
+  "v4b_arm_G": {
+    "description": "standardized [final|block4|block8], TRAIN-only mu/sigma fit on 93233 in-loss rows, same recipe",
+    "dev": {
+      "fn": 21,
+      "fp": 80,
+      "auc": 0.9848786882890649,
+      "per_seed_auc": [
+        0.98474,
+        0.98306,
+        0.98268
+      ]
+    },
+    "heldout_train_fold0": {
+      "fn": 17,
+      "fp": 82,
+      "auc": 0.9909300175103783
+    },
+    "bootstrap_G_vs_F": {
+      "d_fn_mean": -10.109,
+      "ci95": [
+        -20,
+        -1
+      ],
+      "p_le_0": 0.991
+    },
+    "bootstrap_G_vs_accepted_base": {
+      "d_fn_mean": -0.0795,
+      "ci95": [
+        -8,
+        8
+      ],
+      "p_le_0": 0.563
+    },
+    "verdict": "G recovers baseline-level FN and beats raw F significantly; AUC +0.0038 over baseline but FN not <=14",
+    "artifact": "artifacts/eval/v4b_report.json"
+  },
+  "v4c_next_method": {
+    "status": "pre_registered_not_started",
+    "method": "new dataset version: block16 and/or block24 from the same frozen forward (captures 8,16,24), never mixed with block4/8",
+    "feasibility_measured": {
+      "block16": {
+        "seq": 35722,
+        "peak_gb": 11.54,
+        "tok_per_s": 12921.7
+      },
+      "block24": {
+        "seq": 35722,
+        "peak_gb": 22.93,
+        "tok_per_s": 8586.5
+      }
+    },
+    "budget_all_tokens": {
+      "train_plus_dev_tokens": 149407000,
+      "block16_hours": 3.2,
+      "block24_hours": 4.8
+    },
+    "reason_deferred": "capture budget exceeds the remaining bounded phase; prepared ids must also be exported for all 8229 TRAIN + 2028 DEV",
+    "next_commands": [
+      "CPU: extend bridge/export_prepared.py to ALL episodes -> bridge/prepared_all/",
+      "GPU: capture with blocks=16 captures=(8,16) into artifacts/capture16 (new ART version)",
+      "train pre-registered arm H=[final|block16] standardized, 3 seeds full+ho, DEV exploratory"
+    ]
+  }
+}

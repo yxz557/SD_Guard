@@ -1,0 +1,35 @@
+{
+ "stage": "corrected-r3",
+ "cpu_authoritative_path": "/root/autodl-tmp/sdsafe-lowcost-authorization-v6-param/corrected-r3",
+ "cpu_endpoint": "root@connect.bjb2.seetacloud.com:13661",
+ "ssh_options": {
+  "key": "/root/sdsafe-runner-runtime/keys/id_ed25519_cpu_store",
+  "known_hosts": "/root/sdsafe-runner-runtime/known_hosts_cpu",
+  "StrictHostKeyChecking": "yes",
+  "BatchMode": "yes"
+ },
+ "bundle_tar_sha256": "a41ef51bd095a9c150d8f4939fe16f503862ee6856195f47902ab4505a0411b8",
+ "manifest_sha256": "24939df4390cc45e0b96572e089aff449d4796d44a45c778ab023141a6eb3ac4",
+ "manifest_files": 151,
+ "verified_ok": 151,
+ "verified_failed": 0,
+ "atomic_method": "tar to CPU .corrected-r3.tmp, sha256sum -c 151/151 OK, then mv to corrected-r3",
+ "readback_key_sha256": {
+  "views_train.jsonl": "ae5c7714a3f67fabc50455bb1c6996aaec5104fde6b1f60b9ac16797a64f5b7c",
+  "views_dev.jsonl": "f56ac9c3439fa958001106082a102574c8b784b0faf0e30e00ea5fdf5920bb46",
+  "cache_train.npz": "c7b3bc26bd53e4f0c54ad629c34486dea94458d5f022e3969a83e3b59edb3e50",
+  "cache_dev.npz": "0cc941ca8b5171e4e7f0be95d08e498acbf351fe8a3d18faca3fb6a6f07113bc",
+  "aux_labels_corrected_r3.json": "14cc584979742edfa07bbf84456c85c04d813abb6f11eae8dba80273d1127ceb",
+  "results_corrected_r3.json": "1e4cc48e4a03f25fd4edfee301872a85a3dc3500fe826a95a9954def7c680d3a",
+  "validation_corrected_r3.json": "e92725c7678fd5d24361f42b18787a24ee8bdcca498bd1035ca8f161a1db4236",
+  "cost_r3_summary.json": "cb239525c42870787368f491a0c60f1608c41cfafd64f959880e9ce1f5e377fc",
+  "fusion_frozen_corrected_r3_S2.json": "202c5eb4dfbca85184daf0b98fbfac5970223c4e0bdfef36468e36b8a03ece85",
+  "replay_S2.npz": "7d2d860fa9a66091b49a3498ade9410431ee62e3d2252944a4964ab53574493b"
+ },
+ "readback_matches_gpu": true,
+ "test_material_read": false,
+ "new_annotation_requests": 0,
+ "note": "remote CPU host is connect.bjb2.seetacloud.com:13661, not localhost; key/known_hosts as above; readback performed after extraction. Handoff was updated with the verified sync record; the manifest was regenerated and re-verified 151/151.",
+ "handoff_sha256": "96e477adcf2217a127207695f03beda7ad3559a0af79d01586e3112cc8c49d47",
+ "verified_after_handoff_update": true
+}

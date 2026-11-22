@@ -1,0 +1,470 @@
+{
+ "run": "sdsafe-v6-param cache-only-r1",
+ "status": "completed_with_residual_risks",
+ "timestamp_utc": "2026-11-14T10:45:00Z",
+ "source": {
+  "git": "/root/sdsafe-compute/v6-param",
+  "commit": "db2fec96454f0d326a225232e613324c0a26aaf3",
+  "tag": "cache-only-r1",
+  "old_tag": "wip-pre-cacheonly"
+ },
+ "annotation": {
+  "new_tasks": 0,
+  "new_api_requests": 0,
+  "retries": 0,
+  "health_probes": 0,
+  "second_judge": 0,
+  "label_repairs": 0,
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "old_workers": "PIDs 38031/38029 terminated, not resumed",
+  "guard": "src/sdsafe_v6/annotation_guard.py fail-closed before credential/network",
+  "frozen_caches_sha256": {
+   "aux2_calls.jsonl": "9f6f4d417a31929dcd888838a8bbbe052dc6584298d8f698cde4ad834716a20c",
+   "aux_calls_v2.jsonl": "089e488971e267c7fc1ed0078c32b172b50c241c13620eee7728e1a5dae60f2b",
+   "pilot400_calls.jsonl": "ef11c792008e53fb8bb204e8e2fa1bfc417416d56308f7199d64c79dba24b3ef"
+  }
+ },
+ "teacher_cache_qc": {
+  "response_lines": 11190,
+  "unique_digests": 9738,
+  "unique_rows_union": 4355,
+  "both_pass": 4155,
+  "single_pass_masked": 132,
+  "no_parse": 177,
+  "tokens_total": 30933421,
+  "reasoning_tokens": 10267340,
+  "usage_missing_digests": 343,
+  "protocol_fix": "old 2265 action trainable = 2199 agreed + 66 single-pass; now strict both-pass",
+  "aux_trainable": {
+   "action": 3798,
+   "rel": 3598,
+   "align": 3846,
+   "arg": 1881
+  },
+  "excluded_forged_role_rows": 95,
+  "arg_usable_events": 1881
+ },
+ "view": {
+  "version": "v6param-view-3",
+  "train_rows_changed": 2341,
+  "train_role_changes": 2146,
+  "dev_rows_changed": 0,
+  "user_request_changed": 0,
+  "extra_trusted_roles_after_fixup": 0,
+  "dev_common_ct_rows_scored": 24983,
+  "dev_common_ct_rows_total": 25003,
+  "zero_length_rows_missing": 20
+ },
+ "arms": {
+  "S0": {
+   "fn": 17,
+   "fp": 80,
+   "auc": 0.9884480002873408,
+   "threshold": -2.7574310302734375,
+   "selected_epoch": 3,
+   "movement": {
+    "recovered_fn": 14,
+    "new_fn": 10,
+    "recovered_fp": 35,
+    "new_fp": 37
+   }
+  },
+  "S1": {
+   "fn": 13,
+   "fp": 80,
+   "auc": 0.9886979269555639,
+   "threshold": -1.4682685136795044,
+   "selected_epoch": 4,
+   "movement": {
+    "recovered_fn": 16,
+    "new_fn": 8,
+    "recovered_fp": 33,
+    "new_fp": 35
+   }
+  },
+  "S2": {
+   "fn": 13,
+   "fp": 80,
+   "auc": 0.9891498901519913,
+   "threshold": -0.7444994449615479,
+   "selected_epoch": 5,
+   "movement": {
+    "recovered_fn": 16,
+    "new_fn": 8,
+    "recovered_fp": 37,
+    "new_fp": 39
+   }
+  },
+  "S3": {
+   "fn": 19,
+   "fp": 80,
+   "auc": 0.985317182383612,
+   "threshold": -0.8414574265480042,
+   "selected_epoch": 7,
+   "movement": {
+    "recovered_fn": 13,
+    "new_fn": 11,
+    "recovered_fp": 37,
+    "new_fp": 39
+   }
+  },
+  "S4": {
+   "fn": 13,
+   "fp": 80,
+   "auc": 0.9892890708714209,
+   "threshold": -2.444539785385132,
+   "selected_epoch": 5,
+   "movement": {
+    "recovered_fn": 15,
+    "new_fn": 7,
+    "recovered_fp": 35,
+    "new_fp": 37
+   }
+  }
+ },
+ "per_seed": {
+  "S0": {
+   "0": {
+    "fn": 20,
+    "fp": 80,
+    "auc": 0.9831845745858999,
+    "threshold": -1.3026707172393799
+   },
+   "1": {
+    "fn": 18,
+    "fp": 80,
+    "auc": 0.9852408574729571,
+    "threshold": -2.4454855918884277
+   },
+   "2": {
+    "fn": 18,
+    "fp": 80,
+    "auc": 0.9865099461834551,
+    "threshold": -1.7751160860061646
+   }
+  },
+  "S1": {
+   "0": {
+    "fn": 19,
+    "fp": 80,
+    "auc": 0.9845195122389239,
+    "threshold": 0.5443868041038513
+   },
+   "1": {
+    "fn": 14,
+    "fp": 80,
+    "auc": 0.989212745960766,
+    "threshold": -0.7626545429229736
+   },
+   "2": {
+    "fn": 17,
+    "fp": 80,
+    "auc": 0.9842995169082126,
+    "threshold": -2.2246885299682617
+   }
+  },
+  "S2": {
+   "0": {
+    "fn": 17,
+    "fp": 80,
+    "auc": 0.9847125693658747,
+    "threshold": -0.2415585219860077
+   },
+   "1": {
+    "fn": 14,
+    "fp": 80,
+    "auc": 0.9882893641985285,
+    "threshold": -0.5017641186714172
+   },
+   "2": {
+    "fn": 15,
+    "fp": 80,
+    "auc": 0.9856075163574759,
+    "threshold": -0.0680752843618393
+   }
+  },
+  "S3": {
+   "0": {
+    "fn": 29,
+    "fp": 80,
+    "auc": 0.9758057516058163,
+    "threshold": -0.2997705042362213
+   },
+   "1": {
+    "fn": 23,
+    "fp": 80,
+    "auc": 0.9859098228663447,
+    "threshold": -0.409773051738739
+   },
+   "2": {
+    "fn": 26,
+    "fp": 80,
+    "auc": 0.9783948123005825,
+    "threshold": 0.10581552982330322
+   }
+  },
+  "S4": {
+   "0": {
+    "fn": 13,
+    "fp": 80,
+    "auc": 0.9880978036384533,
+    "threshold": -1.0523344278335571
+   },
+   "1": {
+    "fn": 8,
+    "fp": 80,
+    "auc": 0.9880065130590425,
+    "threshold": -3.1170129776000977
+   },
+   "2": {
+    "fn": 21,
+    "fp": 80,
+    "auc": 0.9856868344018821,
+    "threshold": -2.1731252670288086
+   }
+  }
+ },
+ "bootstrap": {
+  "S0_vs_baseline": {
+   "replicates": 2000,
+   "delta_fn_point": -4,
+   "delta_fp_point": 2,
+   "delta_fn_mean": -3.973,
+   "delta_fn_ci95": [
+    -14.0,
+    6.0
+   ],
+   "delta_fp_mean": 1.8885,
+   "delta_fp_ci95": [
+    -15.024999999999999,
+    19.0
+   ]
+  },
+  "S1_vs_baseline": {
+   "replicates": 2000,
+   "delta_fn_point": -8,
+   "delta_fp_point": 2,
+   "delta_fn_mean": -7.975,
+   "delta_fn_ci95": [
+    -18.0,
+    2.0
+   ],
+   "delta_fp_mean": 1.928,
+   "delta_fp_ci95": [
+    -14.0,
+    18.0
+   ]
+  },
+  "S2_vs_baseline": {
+   "replicates": 2000,
+   "delta_fn_point": -8,
+   "delta_fp_point": 2,
+   "delta_fn_mean": -7.998,
+   "delta_fn_ci95": [
+    -18.0,
+    2.0
+   ],
+   "delta_fp_mean": 2.045,
+   "delta_fp_ci95": [
+    -15.0,
+    19.0
+   ]
+  },
+  "S3_vs_baseline": {
+   "replicates": 2000,
+   "delta_fn_point": -2,
+   "delta_fp_point": 2,
+   "delta_fn_mean": -1.993,
+   "delta_fn_ci95": [
+    -12.0,
+    8.0
+   ],
+   "delta_fp_mean": 2.1055,
+   "delta_fp_ci95": [
+    -16.0,
+    19.0
+   ]
+  },
+  "S4_vs_baseline": {
+   "replicates": 2000,
+   "delta_fn_point": -8,
+   "delta_fp_point": 2,
+   "delta_fn_mean": -7.954,
+   "delta_fn_ci95": [
+    -17.025,
+    2.0
+   ],
+   "delta_fp_mean": 1.9595,
+   "delta_fp_ci95": [
+    -14.024999999999999,
+    19.0
+   ]
+  }
+ },
+ "fusion": {
+  "S0": {
+   "fn": 18,
+   "fp": 80,
+   "auc": 0.9892651258014116,
+   "threshold": 0.6846826521558886,
+   "movement": {
+    "recovered_fn": 9,
+    "new_fn": 6,
+    "recovered_fp": 21,
+    "new_fp": 23
+   }
+  },
+  "S2": {
+   "fn": 11,
+   "fp": 80,
+   "auc": 0.9902797981430598,
+   "threshold": 0.6624409698441314,
+   "movement": {
+    "recovered_fn": 14,
+    "new_fn": 4,
+    "recovered_fp": 23,
+    "new_fp": 25
+   }
+  }
+ },
+ "fusion_notes": {
+  "FUSION_S0": "rule-selected overall fold-0 arm; frozen TRAIN-only mapping",
+  "FUSION_S2": "exploratory DEV reuse; S2 arm chosen after base DEV table visible; mapping frozen, no DEV fit",
+  "old_rank_fusion": "invalid for online deployment (batch DEV ranking); replaced",
+  "legacy_files": "artifacts/fusion_model*.json are LR params, not used"
+ },
+ "s4_exploratory": {
+  "params": 2981971,
+  "fold0": {
+   "auc": 0.9920260267045393,
+   "fn": 10,
+   "fp": 82,
+   "tp": 439,
+   "tn": 1574
+  },
+  "dev": {
+   "fn": 13,
+   "fp": 80,
+   "auc": 0.9892890708714209,
+   "threshold": -2.444539785385132,
+   "selected_epoch": 5,
+   "movement": {
+    "recovered_fn": 15,
+    "new_fn": 7,
+    "recovered_fp": 35,
+    "new_fp": 37
+   }
+  },
+  "verdict": "no gain over S1/S2; do not expand without larger clean labels"
+ },
+ "cost": {
+  "p50_ms_median": 1.2218412011861801,
+  "p95_ms_median": 1.842938922345638,
+  "p95_ms_worst": 2.0223163068294525,
+  "p99_ms_median": 2.1358659118413916,
+  "target_ms_p95": 1.0,
+  "passed": false,
+  "processes": 3,
+  "repeats": 3,
+  "events": 600,
+  "components_p95_median": {
+   "decode": 0.24417433887720102,
+   "index_update": 0.22179223597049713,
+   "view_plus_features": 0.9702481329441065,
+   "h2d": 0.20375959575176236,
+   "forward_score_max": 0.5079764872789383
+  }
+ },
+ "validation": {
+  "checks": 41,
+  "passed": 41,
+  "failed": [],
+  "artifact": "artifacts/validation_v3.json"
+ },
+ "tests": {
+  "command": "PYTHONPATH=src python -m unittest discover -s tests",
+  "passed": 13,
+  "failed": 0,
+  "log": "logs/tests_cacheonly.log"
+ },
+ "key_artifacts": {
+  "artifacts/results_v3.json": {
+   "sha256": "c7ee3f2b341765f6c929239cfd6289efca3c2dd5270995853a5ac0835adfdf01",
+   "bytes": 698755
+  },
+  "artifacts/validation_v3.json": {
+   "sha256": "34daf84d70584dec8d2dbe24b6ec5fe97f0d9bdbac7d8b314ff4f12df898075e",
+   "bytes": 6777
+  },
+  "artifacts/study_arms_v3.json": {
+   "sha256": "6aa6e39daf3e73175fe95ef4557a3f7b65ad271808649fb08ce2fa79b2d371cf",
+   "bytes": 6821
+  },
+  "artifacts/study_arg_v3.json": {
+   "sha256": "f4330ed8c6fc1fad1f0899b33d0413aeb161e8cbec2a2a017e972a88b1507dd1",
+   "bytes": 2633
+  },
+  "artifacts/fusion_frozen_v3.json": {
+   "sha256": "9396319e48714409532ecb37b03aed35d018adfdd5c4a468c6b5ddfd37d0ec88",
+   "bytes": 1447
+  },
+  "artifacts/fusion_frozen_v3_S0.json": {
+   "sha256": "8c6448791ea59b8f63f8ed5c6aa2cfed848c1b468e1b8686ca69d45710882c97",
+   "bytes": 1448
+  },
+  "artifacts/cost_v3_summary.json": {
+   "sha256": "9ce23ab7569be296303051251203bcd1fd8a6b9c1a459bb224a755c0ea08bacc",
+   "bytes": 2539
+  },
+  "artifacts/qc/teacher_cache_qc.json": {
+   "sha256": "04fb40e780f71cb4e286aa9a1489e1b76017a274a5257370446c5a1286755d79",
+   "bytes": 9118
+  },
+  "artifacts/aux/aux_manifest_v2.json": {
+   "sha256": "3b8527741725df91c24b65391ba4d778977cec9412b960d7deff93141b53fe0e",
+   "bytes": 2323
+  },
+  "artifacts/teacher/FROZEN_MANIFEST.json": {
+   "sha256": "066f3716b02904c2916bdee472a076d20a2e1bd5829c8e12770707cd8091c0d5",
+   "bytes": 751
+  },
+  "artifacts/handoff/cache-only-r1/v6-param-cache-only-r1.tar.gz": {
+   "sha256": "6ea430e4c28be23b989d96d8dc90f63b928704df9a40d8dd71d1e050f29875ab",
+   "bytes": 136205846
+  }
+ },
+ "cpu_sync": {
+  "performed": false,
+  "reason": "CPU SSH host address not present in this GPU container (localhost:13661 refused; strict known-hosts has no 127.0.0.1 entry). Local bundle created for parent atomic copy + SHA readback.",
+  "bundle": "artifacts/handoff/cache-only-r1/v6-param-cache-only-r1.tar.gz",
+  "bundle_sha256": "6ea430e4c28be23b989d96d8dc90f63b928704df9a40d8dd71d1e050f29875ab",
+  "bundle_bytes": 136205846
+ },
+ "processes": {
+  "old_paused_train_pid": 37269,
+  "old_train_kernel_starttime": "2805191632",
+  "old_train_action": "SIGKILL after preserving S1/S2 fits; never SIGCONT",
+  "old_annotation_pids": [
+   38031,
+   38029
+  ],
+  "current_sdsafe_processes": [],
+  "gpu_compute_processes": []
+ },
+ "next_steps": [
+  "Parent: copy bundle to CPU store atomically and re-read SHA; compare teacher cache SHA.",
+  "Decide whether 1.84 ms p95 cost is acceptable or whether to fund a faster retrieval/index path.",
+  "If a larger clean annotation budget is ever approved, re-test S4 per-argument field arm; current exploratory result shows no gain.",
+  "Do not treat FUSION_S2 as confirmatory; it is DEV reuse."
+ ],
+ "residual_risks": [
+  "CPU sync not performed from GPU node.",
+  "S4/FUSION_S2 post-DEV exploratory.",
+  "Base TRAIN in-sample AUC 0.9998 caveat for fixed scaling.",
+  "20 zero-length CT rows omitted; base logits equal episode max.",
+  "Teacher labels model-generated; 95 forged-role rows excluded, 132 single-pass masked.",
+  "S1/S2 bootstrap CI includes 0; only exploratory FUSION_S2 excludes 0.",
+  "Cost p95 1.84 ms > 1 ms target."
+ ]
+}

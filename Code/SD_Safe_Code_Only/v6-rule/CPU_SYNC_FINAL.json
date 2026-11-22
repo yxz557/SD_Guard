@@ -1,0 +1,36 @@
+{
+ "stage": "runtime-final",
+ "cpu_authoritative_path": "/root/autodl-tmp/sdsafe-lowcost-authorization-v6-param/runtime-final",
+ "cpu_endpoint": "root@connect.bjb2.seetacloud.com:13661",
+ "ssh_options": {
+  "key": "/root/sdsafe-runner-runtime/keys/id_ed25519_cpu_store",
+  "known_hosts": "/root/sdsafe-runner-runtime/known_hosts_cpu",
+  "StrictHostKeyChecking": "yes",
+  "BatchMode": "yes"
+ },
+ "manifest_files": 28,
+ "sha256sums_verified_on_cpu": 28,
+ "sha256sums_failed": 0,
+ "readback_keys": 12,
+ "readback_ok": 12,
+ "readback_matches_gpu": true,
+ "readback_key_sha256": {
+  "SHA256SUMS.txt": "85bb9218d4b8d646e7d818aff4c639f668b622eeac81a1273dcf2d92cfaab56c",
+  "MANIFEST_FINAL.json": "400e1b31e3f0ccbbcc77466981db6378bddda0accc8df5ad841c386d68090f9c",
+  "cost_final_summary.json": "3aaef2fa0aa5ec02f8b62c4c47f7b07079a40d76bf63d865cbed6c705349f79c",
+  "parity_r4.json": "424112bf7c269587f916827b17915bd5dab46b440cae912d0a14b627695c1f15",
+  "parity_r4_row_logits.npz": "dd2d32f665ef9952911206e1dc59e0b9b7752368020d2ef1e8509d7fd69959e7",
+  "accuracy_final.json": "d80620d0d0800649b332c2748d86aedf0d354cbdad6fcb93028aeec8666a579f",
+  "frozen_sha_final.json": "c1abc46d3883d57b2500103caf34908ace2f0b0c81990e802f1d1e184ae6f6f9",
+  "reports/FINAL_RUNTIME_REPORT.md": "8284ebee9ab3416cbb3dfebfee7d2ad2194c30545a6f6645ebf3043bc5a7e65e",
+  "reports/HANDOFF_RUNTIME_FINAL.json": "322ab13291f559293dc295f1b3ecf1b45bf7a65771a1eb4c853db608285c8bf8",
+  "cost_r4_p0.json": "7b6f58c2d5f20834f11ae3f359fac4ed93db179d0b1ea916cce541a81d7fe918",
+  "scores_R_gpu_p0_r0.npz": "ea4e86d4f0ad2bc80335cf325cad7c67ad4f517e83b5a1bb973f6f9af0dc5810",
+  "scores_T_gpu_p2_r2.npz": "ea4e86d4f0ad2bc80335cf325cad7c67ad4f517e83b5a1bb973f6f9af0dc5810"
+ },
+ "sha256sums_sha256": "85bb9218d4b8d646e7d818aff4c639f668b622eeac81a1273dcf2d92cfaab56c",
+ "atomic_method": "tar stream to CPU .runtime-final.stage, sha256sum -c 28/28 OK, swap runtime-final (old kept as runtime-final.old), then readback of 12 key files",
+ "note": "old corrected-r3/ and runtime-r4/ artifacts on the CPU node untouched; no unknown file removed; TEST material not read; 0 annotation/API requests",
+ "test_material_read": false,
+ "new_annotation_requests": 0
+}
