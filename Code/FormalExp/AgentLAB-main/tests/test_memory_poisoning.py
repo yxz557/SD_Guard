@@ -421,6 +421,40 @@ class MemoryPoisoningTests(unittest.TestCase):
                 str(Path("traces") / "agentlab-a" / "raw_trace.json"),
             )
 
+    def test_final_metrics_exclude_invalid_and_partial_from_success(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runner = object.__new__(memory_poisoning.SingleModelRunner)
+            runner.output_dir = temporary
+            runner.model_id = "Qwen/Qwen3-8B"
+            runner.provider = "local"
+            runner.log = QuietLog()
+            runner.results = {
+                "samples": [
+                    {"attack_valid": True, "attack_eval": "EXECUTED"},
+                    {"attack_valid": True, "attack_eval": "PARTIAL"},
+                    {"attack_valid": True, "attack_eval": "REFUSED"},
+                    {"attack_valid": False, "attack_eval": "ERROR",
+                     "invalid_attempts": [{"reasons": ["write"]}]},
+                ],
+                "baseline_executed": [{"source_row_index": 4}],
+                "baseline_errors": [{"source_row_index": 5}],
+                "attack_errors": [{"source_row_index": 6}],
+                "invalid_attacks": [{"source_row_index": 3}],
+            }
+
+            runner._finalize()
+
+            metrics = json.loads(
+                (Path(temporary) / "final_results.json").read_text(
+                    encoding="utf-8")) ["metrics"]
+            self.assertEqual(metrics["successful"], 1)
+            self.assertEqual(metrics["partial"], 1)
+            self.assertEqual(metrics["refused"], 1)
+            self.assertEqual(metrics["invalid_attacks"], 1)
+            self.assertEqual(metrics["invalid_attempts"], 1)
+            self.assertEqual(metrics["source_rows_covered"], 7)
+            self.assertEqual(metrics["rate"], 0.25)
+
     def test_run_summary_writes_manifest_and_redacts_configuration(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -586,7 +620,11 @@ class MemoryPoisoningTests(unittest.TestCase):
         }
         executor._test = lambda *args, **kwargs: (
             memory_poisoning.BehaviorEval.EXECUTED,
-            {"score": 5, "evaluation": "EXECUTED"},
+            {
+                "score": 5,
+                "evaluation": "EXECUTED",
+                "memory_validation": {"valid": True, "errors": []},
+            },
         )
         strategy = memory_poisoning.Strategy(
             "strategy-1", "persona", "context", "approach",
@@ -601,6 +639,44 @@ class MemoryPoisoningTests(unittest.TestCase):
         self.assertEqual(evaluation, memory_poisoning.BehaviorEval.EXECUTED)
         self.assertEqual(details["final_memories"], ["refined memory"])
         self.assertEqual(details["strategy_id"], "strategy-1")
+
+    def test_execute_does_not_count_unverified_memory_as_success(self):
+        executor = bare_executor()
+        executor.config.max_effectiveness_iterations = 2
+        executor.gen = SimpleNamespace(refine=lambda memory, rounds: memory)
+        executor._cleanup = lambda uid: {"valid": True}
+        executor._inject = lambda memories, sample, uid: {
+            "memory_writes": [], "memory_write_summary": {"valid": False},
+        }
+        executor._test = lambda *args, **kwargs: (
+            memory_poisoning.BehaviorEval.EXECUTED,
+            {
+                "score": 5,
+                "evaluation": "EXECUTED",
+                "trace_path": "trace.json",
+                "memory_validation": {
+                    "valid": False,
+                    "errors": ["memory_write_incomplete"],
+                },
+            },
+        )
+        strategy = memory_poisoning.Strategy(
+            "strategy-1", "persona", "context", "approach",
+            ["original memory"], ["keyword"],
+        )
+
+        evaluation, details, _ = executor.execute(
+            strategy, "instruction", {"environments": []}, "user-1",
+            SimpleNamespace(harmful_goal="goal"),
+        )
+
+        self.assertEqual(evaluation, memory_poisoning.BehaviorEval.ERROR)
+        self.assertFalse(details["attack_valid"])
+        self.assertEqual(len(details["invalid_attempts"]), 2)
+        self.assertEqual(
+            details["invalid_attempts"][0]["reasons"],
+            ["memory_write_incomplete"],
+        )
 
     def test_upstream_refinement_keeps_low_score_memory(self):
         executor = bare_executor()
